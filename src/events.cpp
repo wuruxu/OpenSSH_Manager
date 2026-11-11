@@ -1,3 +1,4 @@
+#include "i18n.h"
 #include "platform.h"
 #include "diagnostics.h"
 #include <winevt.h>
@@ -22,7 +23,7 @@ std::vector<BYTE> render(EVT_HANDLE context, EVT_HANDLE event, DWORD flags) {
 std::wstring localTime(ULONGLONG ticks) {
     FILETIME utc{static_cast<DWORD>(ticks), static_cast<DWORD>(ticks >> 32)};
     SYSTEMTIME utcTime{}, time{};
-    if (!FileTimeToSystemTime(&utc, &utcTime) || !SystemTimeToTzSpecificLocalTime(nullptr, &utcTime, &time)) return L"未知";
+    if (!FileTimeToSystemTime(&utc, &utcTime) || !SystemTimeToTzSpecificLocalTime(nullptr, &utcTime, &time)) return i18n::text(i18n::Text::Unknown);
     wchar_t text[64]{};
     swprintf_s(text, L"%04u-%02u-%02u %02u:%02u:%02u", time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute, time.wSecond);
     return text;
@@ -36,7 +37,7 @@ EventBatch readEvents() {
     const wchar_t* paths[] = {L"Event/EventData/Data[@Name='process']", L"Event/EventData/Data[@Name='payload']"};
     EventHandle user{EvtCreateRenderContext(2, paths, EvtRenderContextValues)};
     EventHandle system{EvtCreateRenderContext(0, nullptr, EvtRenderContextSystem)};
-    if (!user.h || !system.h) throw std::runtime_error("Could not create event render context.");
+    if (!user.h || !system.h) throw std::runtime_error(i18n::utf8Text(i18n::Text::EventContextFailed));
     for (const auto* channel : {L"OpenSSH/Operational", L"OpenSSH/Admin"}) {
         try {
             EventHandle query{EvtQuery(nullptr, channel, L"*", EvtQueryChannelPath | EvtQueryReverseDirection)};
@@ -58,22 +59,23 @@ EventBatch readEvents() {
                 record.time = localTime(record.ticks);
                 record.channel = channel;
                 record.message = valueString(u[1]);
-                if (record.message.empty()) record.message = L"事件未包含 OpenSSH payload；请查看原始 XML。";
+                if (record.message.empty()) record.message = i18n::text(i18n::Text::EventNoPayload);
                 auto summary = summarizeLogin(utf8(record.message));
+                record.kind = summary.kind;
                 record.user = summary.user.empty() ? L"—" : wide(summary.user);
                 record.address = summary.address.empty() ? L"—" : wide(summary.address);
                 record.explanation = wide(summary.explanation);
-                record.result = summary.kind == LoginKind::Success ? L"成功" : summary.kind == LoginKind::Failure ? L"失败" : summary.kind == LoginKind::Connection ? L"连接" : L"事件";
+                record.result = summary.kind == LoginKind::Success ? i18n::text(i18n::Text::Success) : summary.kind == LoginKind::Failure ? i18n::text(i18n::Text::Failure) : summary.kind == LoginKind::Connection ? i18n::text(i18n::Text::Connection) : i18n::text(i18n::Text::Event);
                 if (summary.kind == LoginKind::Other && s[EvtSystemLevel].Type == EvtVarTypeByte && s[EvtSystemLevel].ByteVal <= 2 && s[EvtSystemLevel].ByteVal > 0)
-                    record.result = L"错误";
-                record.details = L"时间（本机时区）：" + record.time + L"\r\n通道：" + channel +
-                    L"\r\n事件 ID：" + std::to_wstring(s[EvtSystemEventID].UInt16Val) + L"    进程 ID：" + std::to_wstring(s[EvtSystemProcessID].UInt32Val) +
-                    L"\r\n进程：" + valueString(u[0]) + L"\r\n消息：" + record.message + L"\r\n\r\n原始 XML：\r\n" + reinterpret_cast<const wchar_t*>(xml.data());
+                    { record.result = i18n::text(i18n::Text::Error); record.error = true; }
+                record.details = i18n::text(i18n::Text::EventTime) + record.time + i18n::text(i18n::Text::EventChannel) + channel +
+                    i18n::text(i18n::Text::EventId) + std::to_wstring(s[EvtSystemEventID].UInt16Val) + i18n::text(i18n::Text::ProcessId) + std::to_wstring(s[EvtSystemProcessID].UInt32Val) +
+                    i18n::text(i18n::Text::EventProcess) + valueString(u[0]) + i18n::text(i18n::Text::EventMessage) + record.message + i18n::text(i18n::Text::EventXml) + reinterpret_cast<const wchar_t*>(xml.data());
                 result.records.push_back(std::move(record));
             }
         } catch (const std::exception& e) {
-            result.warning += std::wstring(channel) + L"：" + wide(e.what()) + L"\r\n";
-            result.warning += L"若拒绝访问，可用管理员身份启动界面后重新读取；通道未注册时请检查引擎安装。\r\n";
+            result.warning += std::wstring(channel) + i18n::text(i18n::Text::Colon) + wide(e.what()) + L"\r\n";
+            result.warning += i18n::text(i18n::Text::EventAccessHint);
         }
     }
     std::stable_sort(result.records.begin(), result.records.end(), [](const EventRecord& a, const EventRecord& b) { return a.ticks > b.ticks; });

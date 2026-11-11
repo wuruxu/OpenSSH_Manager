@@ -1,3 +1,4 @@
+﻿. (Join-Path $PSScriptRoot 'Localization.ps1')
 # Shared installer/uninstaller helpers. No changes occur when this file is loaded.
 # Read the raw registry value so %SystemRoot% and REG_EXPAND_SZ are preserved.
 function Get-EnginePathIdentity([string]$Value) {
@@ -7,12 +8,12 @@ function Get-MachinePathSnapshot {
     $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, [Microsoft.Win32.RegistryView]::Registry64)
     try {
         $key = $base.OpenSubKey('SYSTEM\CurrentControlSet\Control\Session Manager\Environment', $false)
-        if (-not $key) { throw 'System environment registry key not found.' }
+        if (-not $key) { throw (Get-SetupText 'EnvironmentKey') }
         try {
             $value = $key.GetValue('Path', $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
             $kind = if ($null -eq $value) { [Microsoft.Win32.RegistryValueKind]::ExpandString } else { $key.GetValueKind('Path') }
             if ($kind -notin @([Microsoft.Win32.RegistryValueKind]::String, [Microsoft.Win32.RegistryValueKind]::ExpandString)) {
-                throw 'System PATH has an unsupported registry type.'
+                throw (Get-SetupText 'PathType')
             }
             return [pscustomobject]@{ Value = $value; Kind = $kind }
         } finally { $key.Dispose() }
@@ -22,11 +23,11 @@ function Set-MachinePathSnapshot($Snapshot, [string]$Value) {
     $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, [Microsoft.Win32.RegistryView]::Registry64)
     try {
         $key = $base.OpenSubKey('SYSTEM\CurrentControlSet\Control\Session Manager\Environment', $true)
-        if (-not $key) { throw 'System environment registry key not found.' }
+        if (-not $key) { throw (Get-SetupText 'EnvironmentKey') }
         try {
             $current = $key.GetValue('Path', $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
             if ($current -cne $Snapshot.Value -or ($null -ne $current -and $key.GetValueKind('Path') -ne $Snapshot.Kind)) {
-                throw 'System PATH changed during installation. Retry without overwriting the other change.'
+                throw (Get-SetupText 'PathChanged')
             }
             $key.SetValue('Path', $Value, $Snapshot.Kind)
         } finally { $key.Dispose() }
@@ -37,7 +38,7 @@ function Save-EnginePathState($State, [string]$StateFile) {
 }
 function Add-EngineToMachinePath([string]$EngineDirectory, $State, [string]$StateFile) {
     if (-not (Test-Path -LiteralPath (Join-Path $EngineDirectory 'sftp-server.exe') -PathType Leaf)) {
-        throw 'Cannot register engine PATH: sftp-server.exe is missing.'
+        throw (Get-SetupText 'PathSftpMissing')
     }
     $snapshot = Get-MachinePathSnapshot
     $identity = Get-EnginePathIdentity $EngineDirectory
@@ -55,7 +56,7 @@ function Add-EngineToMachinePath([string]$EngineDirectory, $State, [string]$Stat
         Save-EnginePathState $State $StateFile
         throw
     }
-    Write-Host 'Registered the engine directory in system PATH for new SSH/SFTP sessions.'
+    Write-Host (Get-SetupText 'PathRegistered')
 }
 function Remove-EngineFromMachinePath([string]$EngineDirectory, $State, [string]$StateFile) {
     # Old installations and manually registered entries do not belong to us.
@@ -78,7 +79,7 @@ function Remove-EngineFromMachinePath([string]$EngineDirectory, $State, [string]
         Save-EnginePathState $State $StateFile
         throw
     }
-    Write-Host 'Removed the system PATH entry added by this installation.'
+    Write-Host (Get-SetupText 'PathRemoved')
 }
 function Test-OwnedEngineService($State, [string]$ServiceCommand, [string]$EngineDirectory) {
     if ($null -eq $State) { return $false }

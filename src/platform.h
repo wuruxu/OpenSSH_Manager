@@ -1,6 +1,7 @@
 #pragma once
 #include "config.h"
 #include "authorized_keys.h"
+#include "diagnostics.h"
 #include <windows.h>
 #include <string>
 #include <vector>
@@ -39,6 +40,8 @@ std::wstring stateName(DWORD state);
 std::wstring defaultShell();
 struct EventRecord {
     ULONGLONG ticks = 0;
+    LoginKind kind = LoginKind::Other;
+    bool error = false;
     std::wstring time, channel, user, address, result, explanation, message, details;
 };
 struct EventBatch { std::vector<EventRecord> records; std::wstring warning; };

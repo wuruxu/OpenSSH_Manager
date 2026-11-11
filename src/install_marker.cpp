@@ -1,3 +1,4 @@
+#include "i18n.h"
 #include "install_marker.h"
 #include <map>
 #include <stdexcept>
@@ -6,7 +7,7 @@ namespace {
 struct Value { std::wstring text; bool boolean = false, isBool = false; };
 class Parser {
     const std::wstring& input; size_t pos = 0;
-    [[noreturn]] void fail() { throw std::runtime_error("Invalid installation marker JSON."); }
+    [[noreturn]] void fail() { throw std::runtime_error(i18n::utf8Text(i18n::Text::MarkerInvalid)); }
     void space() { while (pos < input.size() && (input[pos] == L' ' || input[pos] == L'\r' || input[pos] == L'\n' || input[pos] == L'\t')) ++pos; }
     bool take(wchar_t c) { space(); if (pos < input.size() && input[pos] == c) { ++pos; return true; } return false; }
     std::wstring string() {

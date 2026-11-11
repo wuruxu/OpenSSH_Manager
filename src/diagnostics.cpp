@@ -1,3 +1,4 @@
+#include "i18n.h"
 #include "diagnostics.h"
 #include <regex>
 
@@ -14,19 +15,19 @@ LoginSummary summarizeLogin(const std::string& message) {
     if (std::regex_search(message, match, auth)) {
         out.user = match[4]; out.address = match[5];
         out.kind = match[1] == "Accepted" ? LoginKind::Success : LoginKind::Failure;
-        auto method = match[2] == "publickey" ? std::string("公钥") : match[2] == "password" ? std::string("密码") : match[2].str();
-        if (out.kind == LoginKind::Success) out.explanation = method + "认证成功";
-        else if (match[3].matched) out.explanation = "认证失败：无效账号";
-        else out.explanation = method + "认证失败（日志未说明具体原因）";
+        auto method = match[2] == "publickey" ? std::string(i18n::utf8Text(i18n::Text::PublicKeyMethod)) : match[2] == "password" ? std::string(i18n::utf8Text(i18n::Text::PasswordMethod)) : match[2].str();
+        if (out.kind == LoginKind::Success) out.explanation = method + i18n::utf8Text(i18n::Text::AuthSuccess);
+        else if (match[3].matched) out.explanation = i18n::utf8Text(i18n::Text::AuthInvalidUser);
+        else out.explanation = method + i18n::utf8Text(i18n::Text::AuthFailure);
     } else if (std::regex_search(message, match, invalid)) {
-        out.kind = LoginKind::Failure; out.user = match[1]; out.address = match[2]; out.explanation = "账号不存在或无法解析";
+        out.kind = LoginKind::Failure; out.user = match[1]; out.address = match[2]; out.explanation = i18n::utf8Text(i18n::Text::AccountUnknown);
     } else if (std::regex_search(message, match, denied)) {
-        out.kind = LoginKind::Failure; out.user = match[1]; out.address = match[2]; out.explanation = "账号被拒绝：" + match[3].str();
+        out.kind = LoginKind::Failure; out.user = match[1]; out.address = match[2]; out.explanation = i18n::utf8Text(i18n::Text::AccountDenied) + match[3].str();
     } else if (message.find("Authentication refused") != std::string::npos || message.find("Bad permissions") != std::string::npos) {
         out.kind = LoginKind::Failure;
-        out.explanation = (message.find("permission") != std::string::npos || message.find("ownership") != std::string::npos ? "认证文件权限/属主异常：" : "认证被拒绝：") + message;
+        out.explanation = (message.find("permission") != std::string::npos || message.find("ownership") != std::string::npos ? i18n::utf8Text(i18n::Text::AuthPermissions) : i18n::utf8Text(i18n::Text::AuthRefused)) + message;
     } else if (std::regex_search(message, match, closeUser)) {
-        out.kind = LoginKind::Connection; out.user = match[1]; out.address = match[2]; out.explanation = "连接关闭（不代表认证失败）";
+        out.kind = LoginKind::Connection; out.user = match[1]; out.address = match[2]; out.explanation = i18n::utf8Text(i18n::Text::ConnectionClosed);
     } else if (std::regex_search(message, match, connection)) {
         out.kind = LoginKind::Connection; out.address = match[1]; out.explanation = message;
     }

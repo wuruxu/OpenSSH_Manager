@@ -4,3 +4,4 @@
 303 RCDATA "@CMAKE_CURRENT_SOURCE_DIR@/scripts/EngineArchive.ps1"
 304 RCDATA "@CMAKE_CURRENT_SOURCE_DIR@/scripts/Uninstall.ps1"
 305 RCDATA "@CMAKE_CURRENT_SOURCE_DIR@/engine.lock.json"
+306 RCDATA "@CMAKE_CURRENT_SOURCE_DIR@/scripts/Localization.ps1"

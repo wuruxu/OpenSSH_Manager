@@ -1,4 +1,5 @@
 #include "authorized_keys.h"
+#include "i18n.h"
 #include "config.h"
 #include <stdexcept>
 namespace manager {
@@ -40,7 +41,7 @@ std::vector<AuthorizedKeyEntry> authorizedKeyEntries(const std::string& source) 
 }
 std::string eraseAuthorizedKeyEntry(const std::string& source, size_t index) {
     auto entries = authorizedKeyEntries(source);
-    if (index >= entries.size()) throw std::runtime_error("Public key entry no longer exists. Refresh the list.");
+    if (index >= entries.size()) throw std::runtime_error(i18n::utf8Text(i18n::Text::KeyEntryGone));
     const auto& entry = entries[index];
     return source.substr(0, entry.begin) + source.substr(entry.end);
 }

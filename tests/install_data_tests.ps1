@@ -2,6 +2,8 @@
 # Native OpenSSH calls and Windows ACL application are mocked; no service is installed.
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot '../scripts/Localization.ps1')
+Initialize-SetupLanguage 'en'
 $installer = Join-Path $PSScriptRoot '../scripts/Install.ps1'
 $tokens = $null; $parseErrors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($installer, [ref]$tokens, [ref]$parseErrors)

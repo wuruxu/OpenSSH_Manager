@@ -1,3 +1,4 @@
+#include "i18n.h"
 #include "platform.h"
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -45,11 +46,11 @@ std::vector<NetworkAddress> networkAddresses() {
             nullptr, reinterpret_cast<IP_ADAPTER_ADDRESSES*>(bytes.data()), &size);
     }
     if (result == ERROR_NO_DATA) return {};
-    if (result != NO_ERROR) throw std::runtime_error(utf8(L"读取网络接口失败：" + errorText(result)));
+    if (result != NO_ERROR) throw std::runtime_error(utf8(i18n::text(i18n::Text::NetworkReadFailed) + errorText(result)));
     std::vector<NetworkAddress> addresses;
     for (auto* adapter = reinterpret_cast<IP_ADAPTER_ADDRESSES*>(bytes.data()); adapter; adapter = adapter->Next) {
         if (adapter->OperStatus != IfOperStatusUp) continue;
-        std::wstring name = adapter->FriendlyName ? adapter->FriendlyName : L"网络接口";
+        std::wstring name = adapter->FriendlyName ? adapter->FriendlyName : i18n::text(i18n::Text::NetworkInterface);
         for (auto* entry = adapter->FirstUnicastAddress; entry; entry = entry->Next) {
             auto* socket = entry->Address.lpSockaddr;
             if (!socket || (entry->DadState != IpDadStatePreferred && entry->DadState != IpDadStateDeprecated)) continue;

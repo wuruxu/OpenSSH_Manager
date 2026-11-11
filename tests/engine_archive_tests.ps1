@@ -2,6 +2,8 @@
 param([string]$OfficialArchive)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot '../scripts/Localization.ps1')
+Initialize-SetupLanguage 'en'
 . (Join-Path $PSScriptRoot '../scripts/EngineArchive.ps1')
 Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem

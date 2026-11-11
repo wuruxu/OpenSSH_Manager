@@ -1,6 +1,8 @@
 # Actual ownership/update helpers with an in-memory registry; no elevation or system PATH changes.
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot '../scripts/Localization.ps1')
+Initialize-SetupLanguage 'en'
 . (Join-Path $PSScriptRoot '../scripts/EnginePath.ps1')
 function Assert-True($Condition, [string]$Message) { if (-not $Condition) { throw $Message } }
 function Expect-Failure([scriptblock]$Action, [string]$Message) {

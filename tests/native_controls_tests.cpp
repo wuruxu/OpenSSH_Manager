@@ -408,6 +408,7 @@ void bootstrapChecks() {
     check(setupResource(303).find("Expand-VerifiedEngineArchive") != std::string::npos, "embedded archive helper missing");
     check(setupResource(304).find("OwnsService") != std::string::npos, "embedded uninstaller missing");
     check(setupResource(305).find(engineRelease::sha256) != std::string::npos, "downloader and embedded installer digests differ");
+    check(setupResource(306).find("Select-SetupLanguage") != std::string::npos, "embedded installer translations missing");
     wchar_t directory[MAX_PATH]{}, path[MAX_PATH]{};
     check(GetTempPathW(MAX_PATH, directory) && GetTempFileNameW(directory, L"ssh", 0, path), "cannot create ZIP validation fixture");
     struct Cleanup { const wchar_t* path; ~Cleanup() { DeleteFileW(path); } } cleanup{path};

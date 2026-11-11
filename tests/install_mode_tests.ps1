@@ -2,6 +2,8 @@
 # Does not request elevation, modify services, or write to Program Files.
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot '../scripts/Localization.ps1')
+Initialize-SetupLanguage 'en'
 $tokens = $null; $parseErrors = $null
 $installer = Join-Path $PSScriptRoot '../scripts/Install.ps1'
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($installer, [ref]$tokens, [ref]$parseErrors)
@@ -45,16 +47,19 @@ try {
     [IO.Directory]::CreateDirectory($folder) | Out-Null
     $scriptPath = Join-Path $folder 'Install.ps1'
     [IO.File]::WriteAllText($scriptPath, @'
-param([switch]$GuiOnly, [switch]$Interactive, [switch]$Elevated)
-$global:ManagerBootstrapProbe = @([bool]$GuiOnly, [bool]$Interactive, [bool]$Elevated)
+param([switch]$GuiOnly, [switch]$Interactive, [switch]$Elevated, [string]$UiLanguage)
+$global:ManagerBootstrapProbe = @([bool]$GuiOnly, [bool]$Interactive, [bool]$Elevated, $UiLanguage)
 '@)
-    foreach ($gui in @($false, $true)) {
-        foreach ($interactive in @($false, $true)) {
-            $arguments = Get-ElevationArguments $scriptPath $gui $interactive
-            Assert-True ($arguments -match '^-NoProfile -ExecutionPolicy Bypass -EncodedCommand ([A-Za-z0-9+/=]+)$') 'Unexpected elevation argument shape.'
-            $command = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($Matches[1]))
-            & ([scriptblock]::Create($command))
-            Assert-True ($global:ManagerBootstrapProbe[0] -eq $gui -and $global:ManagerBootstrapProbe[1] -eq $interactive -and $global:ManagerBootstrapProbe[2]) 'Elevation changed path or switch values.'
+    foreach ($language in @('en', 'zh-Hans', 'zh-Hant')) {
+        foreach ($gui in @($false, $true)) {
+            foreach ($interactive in @($false, $true)) {
+                $arguments = Get-ElevationArguments $scriptPath $gui $interactive $language
+                Assert-True ($arguments -match '^-NoProfile -ExecutionPolicy Bypass -EncodedCommand ([A-Za-z0-9+/=]+)$') 'Unexpected elevation argument shape.'
+                $command = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($Matches[1]))
+                & ([scriptblock]::Create($command))
+                Assert-True ($global:ManagerBootstrapProbe[0] -eq $gui -and $global:ManagerBootstrapProbe[1] -eq $interactive -and $global:ManagerBootstrapProbe[2]) 'Elevation changed path or switch values.'
+                Assert-True ($global:ManagerBootstrapProbe[3] -eq $language) 'Elevation changed the UI language.'
+            }
         }
     }
     Write-Output 'PASS: elevation quoting preserves special-character paths and all switch combinations.'

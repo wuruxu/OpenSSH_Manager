@@ -1,3 +1,5 @@
+#include "i18n.h"
+namespace i18n = manager::i18n;
 #include "theme.h"
 #include <objidl.h>
 #include <gdiplus.h>
@@ -76,7 +78,7 @@ bool refresh() {
     if (!nextSurface || !nextCanvas) {
         if (nextSurface) DeleteObject(nextSurface);
         if (nextCanvas) DeleteObject(nextCanvas);
-        throw std::runtime_error("Could not create theme brushes.");
+        throw std::runtime_error(i18n::utf8Text(i18n::Text::ThemeBrushFailed));
     }
     if (surface) DeleteObject(surface);
     if (canvas) DeleteObject(canvas);
@@ -90,7 +92,7 @@ void titleBar(HWND window) {
 }
 void initialize() {
     Gdiplus::GdiplusStartupInput input;
-    if (Gdiplus::GdiplusStartup(&token, &input, nullptr) != Gdiplus::Ok) throw std::runtime_error("Could not initialize native UI drawing.");
+    if (Gdiplus::GdiplusStartup(&token, &input, nullptr) != Gdiplus::Ok) throw std::runtime_error(i18n::utf8Text(i18n::Text::DrawingInitFailed));
     refresh();
 }
 void shutdown() {

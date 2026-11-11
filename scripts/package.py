@@ -50,7 +50,7 @@ def main():
             if not (engine / required).is_file():
                 raise SystemExit(f"Engine missing required file: {required}")
         shutil.copy2(args.manager_exe, package / "OpenSSHManager.exe")
-        for name in ["Install.cmd", "Install.ps1", "Uninstall.ps1", "EnginePath.ps1", "EngineArchive.ps1", "Test-Windows.ps1"]:
+        for name in ["Install.cmd", "Install.ps1", "Uninstall.ps1", "EnginePath.ps1", "EngineArchive.ps1", "Localization.ps1", "Test-Windows.ps1"]:
             shutil.copy2(ROOT / "scripts" / name, package / name)
         for name in ["README.md", "LICENSE", "engine.lock.json"]:
             shutil.copy2(ROOT / name, package / name)
@@ -58,7 +58,7 @@ def main():
         hashes = {p.relative_to(package).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
                   for p in sorted(package.rglob("*")) if p.is_file()}
         (package / "package-hashes.json").write_text(json.dumps(hashes, indent=2) + "\n", encoding="utf-8")
-        output = args.output / "OpenSSHManager-0.1.22-win64.zip"
+        output = args.output / "OpenSSHManager-0.1.23-win64.zip"
         with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as bundle:
             for file in sorted(package.rglob("*")):
                 if file.is_file():

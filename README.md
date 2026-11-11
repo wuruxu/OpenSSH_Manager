@@ -1,111 +1,166 @@
 # OpenSSH Manager for Windows
 
-独立的 C++17 / Win32 原生托盘与配置程序。SSH 服务由微软维护的
-Win32-OpenSSH 提供，无 Cygwin、Qt、Electron 或 .NET GUI 运行时依赖。
-此目录不修改上层 Portable OpenSSH 的构建或协议实现。
+A standalone C++17 / Win32 tray application and configuration manager. The SSH service is provided by
+Microsoft's Win32-OpenSSH, with no Cygwin, Qt, Electron, or .NET GUI runtime dependency.
+This directory does not modify the parent Portable OpenSSH build or protocol implementation.
 
-当前版本为 **0.1.22 初始实现**。已在 Linux 上运行配置、公钥逐行删除、日志解析、滚动计算及比例布局测试并交叉编译
-x64 Windows GUI。**尚未在真实 Windows 上验收界面、UAC、安装、回滚或 SSH 登录**，
-先在测试机使用，下面给出了验收步骤。
+The current version is **0.1.23, an initial implementation**. Configuration, public-key entry deletion,
+log parsing, scroll calculations, and proportional layout tests have run on Linux, and the x64 Windows
+GUI has been cross-compiled. **The UI, UAC, installation, rollback, and SSH sign-in have not yet been
+validated on a real Windows machine.** Use a test machine first; validation steps are provided below.
 
-## 功能
+## Features
 
-- 接近 Chrome 设置页、跟随系统浅色/深色模式的原生界面：左侧导航、圆角分组、蓝色主操作按钮与状态标识。
-  使用 Win32 控件配合 Windows 自带 GDI+ 局部绘制，无浏览器内核依赖。
-- 原生中文界面、托盘菜单、关闭到托盘、Explorer 重启后恢复图标、DPI 感知。
-  可调整窗口大小；主窗口不创建横向或纵向滚动条，控件坐标和尺寸按客户区宽高同比例映射。
-  字体、图标及绘制细节取宽高中的较小缩放比例，避免文字变形；放大/缩小或切换 DPI 时同步更新。
-- 公钥/日志列表和多行详情框内部采用无箭头胶囊滚动条，厚度约为当前 DPI 下系统滚动条的 50%。
-  自动换行说明框仅允许纵向滚动，忽略未启用方向的默认/残留滚动范围；事件详情仍支持横向滚动。
-  支持拖动滑块、点击轨道翻页及滚轮；控件内部继续使用原生文本/列表滚动逻辑。
-  ListView 保留系统原有滚动槽位，在槽位内绘制半宽胶囊；列表外框不随滚动条显隐增减尺寸，避免循环布局。
-  主窗口缩放时缓存背景、批量调整控件后统一刷新；滚轮只作用于列表和文本框内部。
-- 右侧页面四周内边距减半，为内容提供更多空间；继续采用无主窗口滚动条的比例布局。
-  页面、侧栏及导入浮层操作按钮统一采用 Chrome 风格胶囊形状、38 像素基准高度及 16 像素横向内边距。
-  “启动服务”“保存并应用”“确定导入”使用蓝色主按钮，不额外强调边框；次要按钮采用轻微浅色底、蓝色文字及低对比度单像素轮廓，悬停/按下主要增强底色，避免深灰描边；深色主题使用对应的柔和配色；危险操作使用红色文字和淡红边框。
-  禁用按钮的文字与边框一起减淡，不响应悬停；左侧导航继续保持无边框选中背景。
-  浅色、深色及高对比度模式共用同一套悬停/按下/禁用状态规则。
-  按钮鼠标点击不绘制虚线焦点框，键盘焦点用短下划线表示；按钮先在内存中完成绘制，再一次性显示，避免擦底闪白。
-  服务状态轮询对每个按钮只设置一次最终启用状态，状态未变化时不调用 EnableWindow。
-  公钥刷新读到相同内容时不重建列表，保留选中条目和滚动位置。
-- 自动跟随 Windows 的应用颜色模式，并优先使用系统高对比度配色；系统主题通知合并处理，配色未变化不重绘。
-  主界面、列表/表头、输入框、复选框、下拉框及导入浮层同步切换，保留当前输入、选择和列宽。
-  标题栏使用系统支持的深色属性；旧版 Windows 不支持该属性时，客户区仍可切换主题。
-  实现参考：[Windows 应用颜色模式设置](https://learn.microsoft.com/en-us/windows/apps/develop/settings/settings-common)、
-  [Win32 浅色/深色主题](https://learn.microsoft.com/windows/apps/desktop/modernize/apply-windows-themes)。
-- 导航选中项使用纯填充背景，不绘制边框；键盘聚焦用短下划线提示。
-  侧栏按实际可用高度分配四行，避免缩放取整导致选择末项时首项滚出视野。
-  所有页面（含隐藏页）预先完成布局，切页先同步列表和表头再显示，避免首次进入或调整窗口后的位移。
-  切页只更新页面区域和发生变化的可见性；列表使用自身的双缓冲，移除顶层窗口的后代合成绘制。
-  ListView 滚动宿主只随页面尺寸改变列表外框，查询、滚动或滚动条显隐仅同步胶囊状态。
-  隐藏 ListView 内置表头，在列表上方使用独立 Header 控件；浅灰表头、较小字号、列间竖向分隔线及底线由缓存位图绘制，
-  不再调用内置表头的主题绘制过程。列宽拖动同步到列表并刷新表头缓存，横向滚动时表头与数据列对齐。
-  手动调整后，本次运行期间刷新列表、切换页面及调整窗口大小不再覆盖列宽；重新启动应用恢复默认自动布局。
-  公钥与日志共用列表行绘制：36 像素基准行高、浅灰悬停、浅蓝选中，整行（含删除列和尾部空白）底色连续；键盘焦点用左侧短标记表示。
-  原生 ListView 仍负责数据、选择、键盘、列宽与滚动；鼠标移动只重绘发生变化的行。
-  数据批量更新同时暂停列表和表头重绘，结束后刷新；空闲时不主动绘制表头。
-- 新增蓝色 OpenSSH 主题图标，源文件为 `resources/app.svg`，发布包附带 `OpenSSHManager.svg`。
-  根据 [OpenSSH 官网标识](https://www.openssh.org/images/openssh.gif) 的戴墨镜河豚形象重新绘制，采用 Windows 风格蓝色；
-  ICO 含 16–256 像素多种尺寸，用于 EXE、窗口、任务栏、托盘和界面标识。
-- 导航支持方向键，原生输入框/下拉框/复选框保留键盘行为；高对比度模式使用系统颜色。
-- 左侧选中导航背景采用左侧直边、右侧圆角，不绘制额外边框。
-- 左上角图标区域下方显示版本号与编译时间（`MM-DD HH:mm`）；版本来自 CMake 项目版本，编译时刻在构建时记录，显示时转换为运行电脑的 Windows 本地时间。
-  顶部移除“当前 Windows 账号”和“服务状态”标签。
-- 顶部在服务状态前显示当前界面账号、管理员/普通用户身份及独立的提权状态。
-  UAC 未提权的管理员仍显示为“管理员 · 未提权”，身份判断不用于授予权限。
-- 启动时只检测 `sshd` 和本地引擎；主按钮依次显示“下载引擎 → 安装服务 → 启动服务”。下载和安装分别点击触发，支持进度、取消准备、重试和离线 ZIP。
-- 查看标准 `sshd` 服务状态，启动、停止、重启，自动/手动启动。
-- 服务概览在“服务名”下显示已注册服务的 `sshd.exe` 文件版本；读取失败时显示未知。
-- 当前用户的托盘登录自启与系统 SSH 服务开机启动相互独立。
-  “登录 Windows 后显示托盘”和“SSH 服务开机启动”并排使用复选框，间距为 22 个设计像素，随窗口比例缩放；服务启动方式在提权操作完成后同步实际状态。
-- 编辑全局端口、一个监听 IP、密码/公钥认证、TCP 转发、允许的用户和组。
-  监听 IP 下拉框列出已连接接口的名称及 IPv4 / IPv6 地址，打开时刷新；仅允许选择列表项，支持全部地址。
-  已配置但当前不在网卡列表中的地址以“当前配置（接口不可用）”保留，避免保存其他设置时改变监听范围。
-  保存选中的具体 IP，支持 IPv6 链路本地地址的接口编号；网卡地址变化后需要重新选择并应用。
-  认证与转发、网络监听合并在同一卡片中，认证与转发行在上；标题分别与对应控件同行显示，监听提示与标题左对齐。
-  端口与监听 IP 的标签文字到控件可见边框均留 12px（随字体缩放）；监听 IP 下拉框宽度缩小 30%。
-  端口标签左边缘与上一行第一个复选框左边缘对齐。
-  点击页面空白处或切换到其他窗口会移除控件焦点并收起下拉列表。
-- 校验候选配置，SHA-256 检测外部修改，原子替换，保留备份；重启失败恢复配置。
-- 原样保留已有注释、未知指令和 `Match` 块。遇到全局 `Include`、多个端口/监听地址等
-  不能可靠表达的配置时禁止表单覆盖，仍可手动编辑配置文件。
-- 默认终端设置为 CMD 或 Windows PowerShell。
-  说明文字、终端下拉框和应用按钮在同一行显示。
-- 授权公钥使用原生 ListView 显示备注、类型及右侧删除图标；删除图标沿用整行统一选中底色，使用红色危险操作图标，悬停时加粗，操作期间显示禁用色；悬停显示完整公钥，支持 Delete 键删除选中项。
-  公钥目标下拉框位于“授权公钥”标题右侧，间距 22 个设计像素；展开列表加宽以显示完整目标路径，原下拉框占用的空间用于增加列表高度。
-  删除前确认并核对文件版本，只移除所选条目，保留相同密钥的其他条目、限制选项、注释和换行格式。
-- 点击“导入公钥”打开带尖角的输入浮层，粘贴一把公钥并确定；本地输入校验失败或取消 UAC 保留输入。
-  导入仍使用 `ssh-keygen` 实际校验，并按 SID 设置 ACL，不依赖英文版 Windows 的组名。
-- 管理员共用文件读取权限不足时显示“授权读取”；UAC 后通过本机一次性管道传回列表，
-  不放宽公钥文件权限、不写临时导出文件。管理员导入/删除在同一次授权后返回更新后的列表。
-- 公钥页面首次按当前账号身份选择默认目标，显示与实际写入共用同一函数计算的完整路径。
-  手动选择会保留；管理员选择个人文件时提示默认 `Match` 规则可能使其不生效。
-- 合并 Operational / Admin 通道最近 200 条事件，按时间倒序显示时间、结果、账号、
-  来源 IP、说明；选中查看完整消息和 XML，异步读取期间界面保持可操作。
-- 管理专用防火墙规则 `OpenSSHManager-Server`：域/专用网络、本地子网、指定程序与端口。
-  规则存在时，配置保存同步更新该规则；不修改其他应用或系统的规则。
+- A native interface inspired by Chrome Settings, following the system light/dark mode: sidebar navigation,
+  rounded groups, blue primary actions, and status indicators. Uses Win32 controls with selective GDI+
+  drawing provided by Windows, without a browser engine.
+- Native Simplified Chinese, Traditional Chinese, and English interfaces. At startup, the app reads the
+  current user's Windows UI language preferences and selects the first supported language in preference order:
+  `zh-Hans` / mainland China / Singapore use Simplified Chinese; `zh-Hant` / Taiwan / Hong Kong / Macao use
+  Traditional Chinese; English uses English. If no preference matches, the app falls back to English.
+  Script tags take precedence over regions. Selection does not depend on IP address, time zone, or the
+  system locale for non-Unicode programs. After changing the system language, exit the tray app and restart it.
+  The main UI, tray, popups, installation progress, and application-generated errors/log explanations share
+  a built-in translation catalog. Original OpenSSH logs, system errors, account names, paths, and configuration
+  directives remain unchanged. Elevated helpers and installation scripts inherit the initiating user's selected
+  language, even when UAC uses a different administrator account. Installation and uninstallation scripts also
+  select their language automatically. Translations are embedded in the EXE; release packages include
+  `Localization.ps1` for the scripts. No online translation is required.
+- Tray menu, close-to-tray behavior, icon recovery after Explorer restarts, and DPI awareness.
+  The window is resizable. The main window has no horizontal or vertical scrollbars; control coordinates and
+  dimensions scale proportionally to the client area's width and height. Fonts, icons, and drawing details use
+  the smaller of the two scale factors to prevent distortion, updating when the window size or DPI changes.
+- Arrowless capsule scrollbars inside public-key/log lists and multiline detail fields, approximately 50% of
+  the system scrollbar thickness at the current DPI. Wrapping description fields allow vertical scrolling only
+  and ignore default or stale scroll ranges on disabled axes; event details still support horizontal scrolling.
+  Supports thumb dragging, track clicks for paging, and the mouse wheel, while retaining native text/list
+  scrolling logic. ListView keeps the original system scrollbar gutter and draws a half-width capsule inside it.
+  The outer list frame does not resize when scrollbars appear or disappear, preventing layout loops.
+  Window resizing caches the background, batches control positioning, and then refreshes the result.
+  Mouse-wheel scrolling applies only within lists and text fields.
+- Padding around the right-hand pages is halved to give content more room, retaining proportional layout
+  without main-window scrollbars. Page, sidebar, and import-popup action buttons use Chrome-style capsule
+  shapes, a baseline height of 38 pixels, and 16 pixels of horizontal padding.
+  "Start service", "Save & apply", and "Import" use blue primary buttons without emphasized borders.
+  Secondary buttons have a subtle light fill, blue text, and a low-contrast one-pixel outline; hover/pressed
+  states primarily strengthen the fill instead of adding a dark gray border. Dark mode uses corresponding
+  muted colors. Destructive actions use red text and a pale red border.
+  Disabled buttons fade both text and border and do not respond to hover. Sidebar selection remains borderless.
+  Light, dark, and high-contrast modes share the same hover/pressed/disabled state rules.
+  Mouse clicks do not draw dotted focus rectangles; keyboard focus uses a short underline. Buttons are drawn
+  in memory before being presented in one pass to avoid white flashes during background erasure.
+  Service polling sets each button's final enabled state once and does not call EnableWindow when it is unchanged.
+  Refreshing identical public-key content does not rebuild the list, preserving selection and scroll position.
+- Automatically follows the Windows app color mode, with system high-contrast colors taking priority.
+  System theme notifications are coalesced; unchanged palettes do not trigger a redraw.
+  The main UI, lists/headers, edit fields, checkboxes, dropdowns, and import popup switch together while
+  preserving input, selection, and column widths. The title bar uses the system-supported dark-mode attribute;
+  on older Windows versions without that attribute, the client area still changes theme.
+  Implementation references: [Windows app color mode settings](https://learn.microsoft.com/en-us/windows/apps/develop/settings/settings-common)
+  and [Win32 light/dark themes](https://learn.microsoft.com/windows/apps/desktop/modernize/apply-windows-themes).
+- Selected navigation items use a solid fill without a border; keyboard focus is indicated by a short underline.
+  The sidebar divides its available height among four rows so rounding during scaling does not scroll the first
+  item out of view when the last item is selected. All pages, including hidden pages, are laid out in advance.
+  Page switches synchronize lists and headers before showing them, avoiding movement on first entry or after resizing.
+  Only the page area and changed visibility are updated. Lists use their own double buffering; top-level
+  descendant compositing has been removed. The ListView scroll host changes the outer list frame only when
+  the page size changes; queries, scrolling, and scrollbar visibility changes only synchronize capsule state.
+  The built-in ListView header is hidden, with a separate Header control above the list. A cached bitmap draws
+  the light gray header, smaller text, vertical column separators, and bottom border instead of calling the
+  built-in header's themed drawing. Column dragging updates the list and header cache; horizontal scrolling
+  keeps headings aligned with data columns. After manual resizing, refreshes, page switches, and window resizing
+  preserve column widths for the current run. Restarting the app restores the default automatic layout.
+  Public-key and log lists share row drawing: a baseline height of 36 pixels, light gray hover, light blue
+  selection, and a continuous background across the entire row, including the delete column and trailing space.
+  A short marker on the left indicates keyboard focus. Native ListView still handles data, selection, keyboard
+  input, column widths, and scrolling. Mouse movement redraws only affected rows. Batch data updates suspend
+  both list and header redraw until completion; headers are not actively redrawn while idle.
+- A blue OpenSSH-themed icon, with source in `resources/app.svg` and `OpenSSHManager.svg` included in release packages.
+  Redrawn from the sunglasses-wearing pufferfish in the [OpenSSH logo](https://www.openssh.org/images/openssh.gif),
+  using Windows-style blue. The ICO contains sizes from 16 to 256 pixels for the EXE, window, taskbar, tray, and UI branding.
+- Arrow-key navigation, native keyboard behavior in edit fields/dropdowns/checkboxes, and system colors in high-contrast mode.
+- Selected sidebar items have a straight left edge and rounded right corners, without an additional border.
+- Version and build time (`MM-DD HH:mm`) appear below the top-left icon area. The version comes from the CMake
+  project version; the build timestamp is recorded during compilation and displayed in the runtime computer's
+  Windows local time. The separate "Current Windows account" and "Service status" headings have been removed.
+- The top area shows the current app account, administrator/standard-user identity, and a separate elevation state
+  before the service status. An administrator running without UAC elevation still appears as
+  "Administrator · Not elevated". Identity detection is not used to grant permissions.
+- Startup only detects `sshd` and the local engine. The primary action progresses through
+  "Download → Install service → Start service". Download and installation each require a click, with progress,
+  cancellation of preparation, retries, and offline ZIP support.
+- View the standard `sshd` service status; start, stop, restart, and select automatic/manual startup.
+- The service overview shows the registered `sshd.exe` file version below the service name, or unknown if it cannot be read.
+- The current user's tray startup at sign-in is independent of system SSH service startup at boot.
+  "Show tray at Windows sign-in" and "Start SSH at boot" appear as side-by-side checkboxes with a gap of
+  22 design pixels, scaled with the window. The service startup option is synchronized with the actual state
+  after the elevated operation finishes.
+- Edit the global port, one listen IP, password/public-key authentication, TCP forwarding, and allowed users/groups.
+  The listen-IP dropdown lists connected interface names and IPv4 / IPv6 addresses, refreshing when opened.
+  Only listed entries can be selected, including an all-addresses option. A configured address missing from
+  the current interface list remains available as "Current setting (interface unavailable)", preventing unrelated
+  saves from changing the listening scope. The selected concrete IP is saved, including interface indices for
+  IPv6 link-local addresses. If an interface address changes, select and apply it again.
+  Authentication/forwarding and network listening share a card, with authentication/forwarding above.
+  Each heading shares a row with its controls, and the listen hint aligns with the heading's left edge.
+  Port and listen-IP labels leave a 12px gap to the visible control border, scaled with the font; the listen-IP
+  dropdown is 30% narrower. The port label's left edge aligns with the first checkbox in the row above.
+  Clicking blank page space or switching to another window removes control focus and closes dropdown lists.
+- Validate candidate configurations, detect external changes using SHA-256, replace atomically, retain backups,
+  and restore the configuration if restarting fails.
+- Preserve existing comments, unknown directives, and `Match` blocks unchanged. Global `Include`, multiple
+  ports/listen addresses, and other configurations the form cannot represent reliably disable form-based
+  overwriting. The configuration file can still be edited manually.
+- Set the default shell to CMD or Windows PowerShell. The description, shell dropdown, and apply button share a row.
+- A native ListView shows public-key comments, types, and a delete icon on the right. The delete icon retains
+  the row's selection background, uses a red destructive-action symbol, becomes bolder on hover, and uses a
+  disabled color during operations. Hover shows the complete public key; Delete removes the selected entry.
+  The key-target dropdown sits to the right of the "Public keys" heading with a gap of 22 design pixels.
+  Its expanded list is wider to show full target paths; the space previously used by the dropdown increases
+  list height. Deletion asks for confirmation and checks the file revision. Only the selected entry is removed,
+  preserving other entries with the same key, restriction options, comments, and line endings.
+- "Import key" opens an input popup with a pointer tip. Paste one public key and confirm; local validation
+  failures or canceled UAC prompts preserve the input. Import still performs actual validation with `ssh-keygen`
+  and sets ACLs using SIDs rather than group names specific to English Windows installations.
+- When reading the shared administrator key file requires elevation, the UI shows "Authorize". After UAC,
+  a local, one-time pipe returns the list without relaxing key-file permissions or writing temporary export files.
+  Administrator import/deletion returns the updated list after the same authorization.
+- On first use, the public-key page selects a default target based on the current account and displays the full
+  path computed by the same function used for writing. Manual selections are preserved. Administrators choosing
+  the personal file are warned that the default `Match` rules may prevent it from taking effect.
+- Merge the latest 200 events from Operational / Admin channels in descending time order, showing time, result,
+  account, source IP, and explanation. Select an event for its full message and XML. The UI remains usable while
+  events are read asynchronously.
+- Manage the dedicated `OpenSSHManager-Server` firewall rule: domain/private profiles, local subnet, and a specific
+  executable and port. If the rule exists, configuration saves update it. Other applications' and system rules
+  are not modified.
 
-不包含实时会话列表、踢出会话、流量统计、任意账号建删、图形化 SFTP chroot 或引擎自动更新。
-普通账号公钥只管理当前登录用户，其他用户应在自己的桌面会话导入。
-带 `command=` 等选项的现有条目可显示、逐条删除；创建或修改这些限制选项仍需手动维护。
+Does not include a live session list, session termination, traffic statistics, arbitrary account creation/deletion,
+a graphical SFTP chroot editor, or automatic engine updates. Personal public-key management is limited to the current
+signed-in user; other users should import keys from their own desktop sessions. Existing entries with options such as
+`command=` can be displayed and deleted individually; creating or changing those restrictions still requires manual editing.
 
-## 已固定的 SSH 引擎
+## Pinned SSH engine
 
-`engine.lock.json` 固定微软官方 `10.4.0.0p1-Preview` 的 x64 发布 ZIP 和 SHA-256。
+`engine.lock.json` pins the x64 release ZIP and SHA-256 for Microsoft's official `10.4.0.0p1-Preview`.
 
-安装器会验证 `sftp-server.exe` 并将受保护的 `engine` 目录追加到系统 PATH，保证此版本 Win32-OpenSSH 的 `internal-sftp` 能找到实际程序。
-重复安装不会重复添加；普通重装会为安装标记和服务路径均匹配的本程序服务补齐 PATH，不重启服务。
-显式 `-GuiOnly` 或外部 SSH 服务不会触发 PATH 修复。已有的手动 PATH 条目不被认领；新增条目的归属写入 `InstallState.json`。
-**Preview 是上游发布标签，不表示稳定版。** 不跟随 `latest` 静默变化；此引擎也不是
-上层目录中的 Portable 10.6p2。引擎可独立替换，但必须先更新锁文件并完成回归测试。
+The installer verifies `sftp-server.exe` and appends the protected `engine` directory to the system PATH so this
+Win32-OpenSSH version's `internal-sftp` can find the actual executable. Repeated installation does not add duplicates.
+A normal reinstall repairs PATH for a service owned by this manager when both the installation marker and service path
+match, without restarting the service. Explicit `-GuiOnly` installation and external SSH services do not trigger PATH
+repair. Existing manual PATH entries are not claimed; ownership of newly added entries is recorded in `InstallState.json`.
+**Preview is the upstream release label, not a stable-release designation.** The app does not silently follow `latest`;
+this engine is also distinct from Portable 10.6p2 in the parent directory. The engine can be replaced independently,
+but the lock file must be updated and regression tests completed first.
 
-打包使用官方二进制，并保留其许可证和公告。需要自行编译引擎时，使用
-[微软 Windows 源码分支](https://github.com/PowerShell/openssh-portable)及
-[官方构建说明](https://github.com/PowerShell/Win32-OpenSSH/wiki/Building-OpenSSH-for-Windows-%28using-LibreSSL-crypto%29)。
+Packages use official binaries and retain their licenses and notices. To build the engine yourself, use
+[Microsoft's Windows source branch](https://github.com/PowerShell/openssh-portable) and the
+[official build instructions](https://github.com/PowerShell/Win32-OpenSSH/wiki/Building-OpenSSH-for-Windows-%28using-LibreSSL-crypto%29).
 
-## 构建
+## Build
 
-Windows：安装 Visual Studio 的 C++ 桌面开发工具、Windows SDK 和 CMake，然后在仓库根目录执行：
+On Windows, install Visual Studio's Desktop development with C++ tools, the Windows SDK, and CMake,
+then run these commands from the repository root:
 
 ```powershell
 cmake -S windows -B windows/build -A x64
@@ -113,10 +168,10 @@ cmake --build windows/build --config Release
 ctest --test-dir windows/build -C Release --output-on-failure
 ```
 
-产物：`windows/build/Release/OpenSSHManager.exe`。程序使用静态 C++ 运行库；
-manifest 使用 `asInvoker`，常驻 GUI 不要求管理员权限。
+Output: `windows/build/Release/OpenSSHManager.exe`. The program uses the static C++ runtime.
+Its manifest specifies `asInvoker`, so the resident GUI does not require administrator privileges.
 
-Linux 交叉编译（需要 `x86_64-w64-mingw32-g++` 和 `windres`）：
+Cross-compile on Linux (requires `x86_64-w64-mingw32-g++` and `windres`):
 
 ```sh
 cmake -S windows -B windows/build-mingw -G Ninja \
@@ -125,7 +180,7 @@ cmake -S windows -B windows/build-mingw -G Ninja \
 cmake --build windows/build-mingw
 ```
 
-在 Linux 上独立运行配置测试：
+Run the standalone configuration tests on Linux:
 
 ```sh
 cmake -S windows -B /tmp/openssh-manager-tests -DCMAKE_BUILD_TYPE=Debug
@@ -133,202 +188,290 @@ cmake --build /tmp/openssh-manager-tests
 ctest --test-dir /tmp/openssh-manager-tests --output-on-failure
 ```
 
-## 制作发布包
+## Create a release package
 
-需要 Python 3。下载固定版本并验证 SHA-256：
+Requires Python 3. Download the pinned version and verify its SHA-256:
 
 ```sh
 python3 windows/scripts/package.py \
   --manager-exe windows/build-mingw/OpenSSHManager.exe
 ```
 
-离线打包可再指定 `--engine-zip /path/to/OpenSSH-Win64.zip`。不匹配锁文件的 ZIP 会被拒绝。
-产物在 `windows/dist/OpenSSHManager-0.1.22-win64.zip`，旁边附有 SHA-256 文件。
-包内包括 GUI、完整 OpenSSH 引擎、安装/卸载/验收脚本以及逐文件摘要。
+For offline packaging, also specify `--engine-zip /path/to/OpenSSH-Win64.zip`. ZIP files that do not match the
+lock file are rejected. The output is `windows/dist/OpenSSHManager-0.1.23-win64.zip`, with a SHA-256 file alongside it.
+The package contains the GUI, complete OpenSSH engine, installation/uninstallation/validation scripts, and per-file hashes.
 
-GUI 尚未进行代码签名；正式发布前应签名 GUI，并在签名后重新打包。
-安装脚本核对复制后的文件摘要，同时验证关键引擎文件的 Microsoft Authenticode 签名。
+The GUI is not yet code-signed. Before an official release, sign the GUI and repackage it after signing.
+The installation script checks copied-file hashes and verifies Microsoft Authenticode signatures on key engine files.
 
-## 安装与启动
+## Installation and startup
 
-目标：具有交互桌面的 64 位 Windows 10/11 或 Windows Server 2019 及以上。
-具体引擎的系统支持范围以对应微软发布说明为准；首轮验收建议 Windows 11 x64。
+Target: 64-bit Windows 10/11 or Windows Server 2019 and later, with an interactive desktop.
+Refer to the corresponding Microsoft release notes for the engine's exact OS support.
+Windows 11 x64 is recommended for initial validation.
 
-直接运行 `OpenSSHManager.exe` 即可检测服务，无需预先执行安装脚本：
+Run `OpenSSHManager.exe` directly to detect the service; there is no need to run the installation script first:
 
-- 已有 `sshd`（包括停止或禁用）：检查服务所指向的引擎文件；完整时直接管理，不自动升级。
-- 服务仍注册但本程序引擎缺失：同时核对服务命令行与 `InstallState.json`。只有服务准确指向本程序的 `engine\sshd.exe`，且标记的 `Product`、`Directory`、布尔 `OwnsService=true` 均匹配，才开放“下载引擎 → 修复安装”；已有有效缓存时直接显示“修复安装”。
-- 标记缺失、损坏、归属不符或服务来自其他目录时，只提示异常，不自动修复或覆盖。提权后再次核对，脚本在停止服务、写入引擎和恢复服务前也核对归属。
-- 修复验证固定 ZIP 摘要及微软签名后停止本程序服务、恢复引擎；保留原服务注册、启动类型、配置和所有密钥。原服务禁用时保持禁用，其余情况下校验配置后启动服务。配置或密钥缺失/无效会报错，不自动重建。
-- 确认没有服务：优先复用 `Program Files\OpenSSHManager\engine` 下有安装标记的完整引擎；否则校验同目录的 `OpenSSH-Win64.zip` 或下载缓存。找到可用引擎直接显示“安装服务”；没有则显示“下载引擎”，启动本身不会联网下载。
-- 点击“下载引擎”后在后台下载并校验，按钮显示进度，可取消。完成后只显示“安装服务”，不自动提权。点击“安装服务”才请求 UAC，安装到 `Program Files\OpenSSHManager\engine`，注册并启动服务。
-- 下载、校验或安装失败会显示原因，可重新点击“下载引擎”或“安装服务”。取消 UAC 后保留已验证缓存，恢复“安装服务”。
-- GitHub 无法访问时，可点击“选择离线包”选择 `engine.lock.json` 指定版本的官方 ZIP；校验通过后等待点击“安装服务”，其他版本或损坏文件会被拒绝。
-- 查询服务出错会停止自动流程；下载完成和提权后均再次检查，避免覆盖期间新增的服务。
+- If `sshd` already exists, including a stopped or disabled service, inspect the engine files referenced by the
+  service. If they are complete, manage the existing service without automatically upgrading it.
+- If the service remains registered but this manager's engine is missing, check both the service command line
+  and `InstallState.json`. "Download → Repair" is available only when the service points exactly to this manager's
+  `engine\sshd.exe` and the marker's `Product`, `Directory`, and boolean `OwnsService=true` all match.
+  If a valid cache is already available, show "Repair" directly.
+- If the marker is missing, corrupt, or has mismatched ownership, or the service comes from another directory,
+  report the problem without automatically repairing or overwriting it. Ownership is checked again after elevation,
+  and by the script before stopping the service, writing the engine, and restoring the service.
+- Repair verifies the pinned ZIP hash and Microsoft signatures, stops this manager's service, and restores the engine.
+  It preserves the existing service registration, startup type, configuration, and all keys. A disabled service stays
+  disabled; otherwise, the service starts after configuration validation. Missing or invalid configuration/keys cause
+  an error rather than automatic regeneration.
+- If no service exists, first reuse a complete engine with an installation marker under
+  `Program Files\OpenSSHManager\engine`; otherwise, validate `OpenSSH-Win64.zip` beside the app or the download cache.
+  A usable engine enables "Install service" directly; otherwise, the app shows "Download".
+  Startup itself does not download anything.
+- Clicking "Download" downloads and verifies the engine in the background, with progress on the button and support
+  for cancellation. Completion only changes the action to "Install service"; it does not automatically request elevation.
+  Clicking "Install service" requests UAC, installs into `Program Files\OpenSSHManager\engine`, and registers and starts
+  the service.
+- Download, verification, or installation failures display the cause. Click "Download" or "Install service" again to retry.
+  Canceling UAC preserves the verified cache and restores the "Install service" action.
+- If GitHub is unreachable, click "Offline ZIP" to select the official ZIP version specified by `engine.lock.json`.
+  After successful verification, the app waits for "Install service" to be clicked. Other versions and corrupt files
+  are rejected.
+- Service-query errors stop the automatic flow. Checks are repeated after download and after elevation to avoid
+  overwriting a service created in the meantime.
 
-安装脚本、版本锁和摘要嵌入 EXE，单独分发 GUI 也可工作。下载使用 Windows WinHTTP（系统代理），
-缓存位于当前用户的 `%LOCALAPPDATA%\OpenSSHManager`。提权后再次核对 ZIP 的 SHA-256，
-在仅管理员和 SYSTEM 可写的目录解压并验证 Microsoft 签名，再执行安装。
-保留原配置和密钥；引擎安装不会移动或替换正在运行的 GUI，也不会自动创建 GUI 开始菜单快捷方式。
-首次安装会设置服务开机启动和防火墙规则；退出 GUI 后 SSH 服务继续运行。
-这不是引擎自动更新，锁文件版本不会随 `latest` 改变。
+Installation scripts, the version lock, and the hash are embedded in the EXE, so the GUI also works when distributed
+alone. Downloads use Windows WinHTTP with the system proxy. The cache is stored in the current user's
+`%LOCALAPPDATA%\OpenSSHManager`. After elevation, the ZIP's SHA-256 is checked again. Extraction and Microsoft signature
+verification take place in a directory writable only by administrators and SYSTEM before installation proceeds.
+Existing configuration and keys are preserved. Engine installation does not move or replace the running GUI and does not
+automatically create a Start menu shortcut for it. Initial installation enables service startup at boot and creates the
+firewall rule; the SSH service keeps running after the GUI exits. This is not automatic engine updating; the lock-file
+version does not change with `latest`.
 
-启动默认只检测，不下载、不安装。旧的 `--no-auto-install` 参数保留兼容，与默认行为相同；`--tray` 仍可使用。
-Windows 冒烟脚本检查默认启动不会进入下载或安装阶段。安装中不能中途退出；下载阶段可先取消再退出。
-若服务已注册但启动或防火墙设置失败，界面显示失败原因和实际状态，后续启动只管理现有服务；
-应先检查配置、启动服务或同步防火墙，不会自动覆盖已注册服务。
+Startup performs detection only, without downloading or installing. The legacy `--no-auto-install` option remains for
+compatibility and has the same behavior as the default; `--tray` is still supported. The Windows smoke-test script checks
+that default startup does not enter the download or installation stage. The app cannot exit during installation;
+during downloading, cancel the download before exiting. If the service is registered but startup or firewall setup fails,
+the UI shows the failure and actual state. Subsequent launches only manage the existing service. Check the configuration,
+start the service, or synchronize the firewall as appropriate; the app does not automatically overwrite a registered service.
 
-如需把 GUI 一并安装到 Program Files 并创建开始菜单快捷方式，仍可完整解压发布包，**双击 `Install.cmd`**。
-下面是此独立安装脚本的行为：
+To install the GUI into Program Files and create a Start menu shortcut as well, fully extract the release package and
+**double-click `Install.cmd`**. The standalone installer behaves as follows.
 
-同意 UAC 管理员授权即可。安装窗口会显示检测结果、
-进度及最终结果，按 Enter 关闭。无需手动打开管理员 PowerShell，也无需自己选择安装模式。
+Approve the UAC administrator prompt. The installer window shows detection results, progress, and the final result;
+press Enter to close it. There is no need to open an administrator PowerShell window or select an installation mode manually.
 
-- 未注册 `sshd`：完整安装引擎和界面，注册并启动服务。
-- 已有 `sshd`（运行或停止均算已安装）：自动只安装或更新 GUI，保留原引擎、服务状态、配置和密钥。
-- 取消 UAC：取消安装；读取服务失败：报错退出，不把它当作未安装。
-- 安装路径固定为 `Program Files\OpenSSHManager`；更新前先从托盘退出旧版 GUI。
+- No registered `sshd`: install the engine and GUI, then register and start the service.
+- Existing `sshd`, whether running or stopped: automatically install or update only the GUI, preserving the existing
+  engine, service state, configuration, and keys.
+- Canceled UAC: cancel installation. A service-query failure reports an error and exits; it is not treated as an absent service.
+- The installation path is fixed at `Program Files\OpenSSHManager`. Exit the old GUI from its tray menu before updating.
 
-`Install.cmd` 是双击入口，实际安装仍由可审阅的 `Install.ps1` 执行。
-脚本会在必要时自动切换到 64 位管理员 PowerShell，也可在普通 PowerShell 中执行：
+`Install.cmd` is the double-click entry point; the actual installation is performed by the reviewable `Install.ps1` script.
+When needed, it automatically switches to 64-bit administrator PowerShell. It can also be run from a normal PowerShell window:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1
 ```
 
-安装目录固定为 `Program Files\OpenSSHManager`。安装器只注册 `sshd` 服务，保留已有
-`ssh-agent`；生成主机密钥与默认配置，启用服务开机启动并创建上述防火墙规则。
-登录不受限于 GUI 进程，退出托盘不会停止服务。
+The installation directory is fixed at `Program Files\OpenSSHManager`. The installer registers only the `sshd` service
+and preserves any existing `ssh-agent`. It generates host keys and a default configuration, enables service startup at boot,
+and creates the firewall rule described above. SSH sign-in is independent of the GUI process; exiting the tray does not
+stop the service.
 
-默认自动检测。若明确只想安装 GUI，即使当前没有 SSH 服务，也可指定：
+Automatic detection is the default. To explicitly install only the GUI, even when no SSH service exists, use:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1 -GuiOnly
 ```
 
-`-GuiOnly` 不替换引擎，不更改服务和密钥，也用于已有安装的 GUI 更新。生成的开始菜单快捷方式带 `--no-auto-install`，避免仅安装 GUI 后首次打开又触发引擎安装。
-更新前先通过托盘菜单退出 GUI。当前没有自动引擎升级流程。
-检测到已有服务会自动切换为 GUI 更新；首次完整安装遇到已有 `ProgramData\ssh` 目录会保留并复用。
-安装器先将已有配置、主机密钥和管理员授权公钥备份到 `ProgramData\ssh.manager-backups\<随机目录>`，
-备份仅 SYSTEM 和管理员可访问。已有配置内容保持不变，主机密钥只生成缺失项，并修正所管理文件的 ACL。
-遇到无配对私钥的主机公钥或无效配置会停止并明确报错，不静默替换用户数据。
-首次安装在注册服务前失败时可以修复错误后重试，无需删除配置或密钥。
-若服务已注册但未运行，可通过 GUI 检查配置并启动；再次双击安装器只更新界面，不自动修复或替换原服务。
+`-GuiOnly` does not replace the engine or change the service or keys. It can also update the GUI in an existing installation.
+The generated Start menu shortcut includes `--no-auto-install` to prevent a GUI-only installation from triggering engine
+installation on first launch. Exit the GUI through its tray menu before updating. There is currently no automatic engine
+upgrade flow.
 
-安装后，从开始菜单以**普通桌面用户**启动 OpenSSH Manager。
-修改系统设置时，GUI 启动同一 EXE 的受限管理模式并通过 UAC 提权；没有常驻管理服务，
-也没有本地 HTTP 控制端口。取消 UAC 不会丢失当前表单。
+An existing service automatically selects GUI-update mode. An initial full installation preserves and reuses an existing
+`ProgramData\ssh` directory. Before proceeding, the installer backs up the existing configuration, host keys, and shared
+administrator authorized keys to `ProgramData\ssh.manager-backups\<random-directory>`. Only SYSTEM and administrators can
+access the backup. Existing configuration contents remain unchanged; only missing host keys are generated, and ACLs on
+managed files are corrected. An orphaned host public key without its private key, or an invalid configuration, stops the
+installation with an explicit error instead of silently replacing user data.
 
-### “启动服务”按钮灰色
+If initial installation fails before service registration, fix the error and retry without deleting configuration or keys.
+If the service is registered but not running, use the GUI to check the configuration and start it. Double-clicking the installer
+again only updates the GUI; it does not automatically repair or replace the existing service.
 
-“尚未安装”表示 Windows 尚未注册名为 `sshd` 的服务。启动后只检测；未准备引擎时主按钮为“下载引擎”，准备好后为“安装服务”。
-下载与安装分别点击触发；仅放置 `sshd_config` 不会注册服务。未安装时隐藏停止、重启按钮，保留选择离线包入口。
-安装脚本会启动服务，因此成功安装后应显示“运行中”，此时“启动服务”置灰是正常的，
-可以使用“停止服务”或“重启服务”。服务页会显示按钮不可用的具体原因；尚未安装时提供安装入口。
-读取服务信息失败时会显示实际错误，不会继续使用上次的服务状态。
+After installation, launch OpenSSH Manager from the Start menu as a **normal desktop user**.
+For system changes, the GUI launches a restricted administration mode of the same EXE with UAC elevation.
+There is no resident management service or local HTTP control port. Canceling UAC preserves the current form.
 
-## 配置行为
+### The "Start service" button is disabled
 
-仅支持注册为绝对路径 `sshd.exe`、无附加参数的标准 `sshd` 服务，配置位于
-`ProgramData\ssh\sshd_config`。自定义服务名、`-f` 参数和多实例会明确拒绝修改。
+"Not installed" means Windows has no registered service named `sshd`. Startup performs detection only: the primary action
+is "Download" when the engine is not ready, and "Install service" when it is ready. Download and installation each require
+a click. Placing an `sshd_config` file alone does not register a service. Before installation, Stop and Restart are hidden,
+while the offline ZIP action remains available.
 
-保存流程：校验输入 → 核对旧配置摘要 → 写入受保护临时文件 → 配套引擎 `sshd -t -f`
-→ 再核对摘要 → `ReplaceFileW` 原子替换并备份 → 如原服务运行则重启 → 同步已存在的专用防火墙规则。
-失败时尝试恢复旧配置、旧规则和原服务状态，失败原因及恢复失败会显示。
-原本停止的服务不会因为保存设置而自动启动。
-恢复副本位于配置目录的 `.manager-{GUID}.backup`，目前需要管理员自行清理旧副本。
+The installer starts the service, so successful installation should show "Running". A disabled "Start service" button is
+normal in this state; use "Stop service" or "Restart" as needed. The service page explains why an action is unavailable
+and offers installation when the service is absent. If service information cannot be read, the actual error is shown
+instead of continuing to display the previous service state.
 
-`Match` 可以覆盖全局值；用户与组条件还受 Windows OpenSSH 的账号命名规则约束。
-配置检查通过不等于某个用户一定能登录。应使用实际账号进行登录验收。
-服务重启可能中断当前连接，不承诺无损热更新。
+## Configuration behavior
 
-默认终端通过系统级 `HKLM\SOFTWARE\OpenSSH\DefaultShell` 设置。
-管理员默认授权公钥文件是管理员组共用文件，导入的密钥可能用于多个管理员账号；
-按上游默认语义工作，不把它当作某一管理员的个人密钥文件。
-自定义 `AuthorizedKeysFile` 需自行核对。界面不处理 Windows 登录密码。
+Only a standard `sshd` service registered with an absolute path to `sshd.exe`, without additional arguments, is supported.
+The configuration must be at `ProgramData\ssh\sshd_config`. Custom service names, `-f` arguments, and multiple instances
+are explicitly rejected for editing.
 
-防火墙规则默认不开放公网。已有其他规则可能允许更广的访问；本程序不收紧这些规则。
-若需要跨网段或公网访问，应由管理员在 Windows 防火墙中明确配置范围。
+Save sequence: validate input → check the old configuration hash → write a protected temporary file → run the matching
+engine's `sshd -t -f` → recheck the hash → atomically replace and back up with `ReplaceFileW` → restart if the service was
+running → synchronize an existing dedicated firewall rule.
 
-## 登录日志
+On failure, the app attempts to restore the previous configuration, firewall rule, and service state. Both the original
+failure and any recovery failure are displayed. Saving settings does not start a service that was previously stopped.
+Recovery copies are stored as `.manager-{GUID}.backup` in the configuration directory; administrators currently need to
+clean up old copies manually.
 
-在“事件日志”页点击“刷新登录日志”，读取 Operational 和 Admin 通道。
-时间使用当前电脑时区；未记录的账号/IP 显示 `—`。密码或公钥失败未说明原因时明确显示未知，
-连接关闭不直接归类为认证失败。选中一条后，下方保留完整消息和 XML，便于复制排查。
-读取通道失败会保留其他通道结果并显示错误；拒绝访问时可用管理员身份启动 GUI 再读。
-只读现有日志，不清空日志或更改日志级别；配置为文件输出的日志不在这个列表中。
+`Match` rules can override global values. User and group conditions are also subject to Windows OpenSSH account-naming rules.
+A successful configuration check does not guarantee that a particular user can sign in; validate sign-in with actual accounts.
+Restarting the service may interrupt existing connections. Seamless hot reload is not guaranteed.
 
-## Windows 验收
+The default shell is configured through the system-wide `HKLM\SOFTWARE\OpenSSH\DefaultShell` setting.
+The default administrator authorized-keys file is shared by the Administrators group, so an imported key may authorize
+multiple administrator accounts. The app follows upstream defaults and does not treat this as one administrator's personal
+key file. Check custom `AuthorizedKeysFile` settings yourself. The UI does not handle Windows sign-in passwords.
 
-可以运行 `Test-Windows.ps1` 检查窗口启动、四页导航、方向键切换、主窗口无滚动条、四页控件比例缩放及边界、内部半宽滚动条、文本滚动同步和关闭到托盘；在管理员 PowerShell 中添加
-`-CheckService` 可检查已安装服务配置。脚本只结束它自己启动的 GUI，不停止 SSH 服务。
+The default firewall rule does not allow public-network access. Other existing rules may allow broader access; this app
+does not tighten them. Administrators must explicitly configure Windows Firewall scopes for access across subnets or
+from the public Internet.
 
-在测试机上还需逐项验证：
+## Sign-in logs
 
-1. 双击首次安装、自动 GUI 更新和显式 `-GuiOnly`；标准用户/管理员/32 位 PowerShell 启动；
-   UAC 取消或凭据切换；路径含空格、中文和特殊字符；报错窗口不闪退，退出码正确。
-   已有服务（运行/停止）不被替换或启动，已有配置/密钥保留；安装目录和主机密钥 ACL。
-   检测失败、安装目录被占用、重复安装及不完整发布包能明确报错。
-2. 100%/150%/200% DPI 的四个页面；跨显示器缩放、小窗口和最大化后的比例布局；主窗口无滚动条，所有主控件位于客户区内。
-   Tab/Shift+Tab、导航方向键、按钮 Space/Enter、导航无边框选中态、禁用状态及高对比度可读性。
-   连续调整窗口宽高时文字和图标等比缩放，按钮不越界；列表内部连续滚动无重复布局/闪白；拖动滑块到两端、轨道长按、长文本和日志列表滚动。
-   独立表头在空闲、鼠标经过和数据更新时不闪白；拖动列宽、横向滚动后标题与数据列保持对齐。
-   切换页面和 DPI 后内部滚动范围更新；新图标在窗口和托盘中清晰。
-   托盘右键、双击、Explorer 重启恢复。
-   用普通用户、未提权管理员和已提权管理员检查顶部身份；长账号名不遮挡服务状态。
-   公钥默认目标与账号匹配，手动切换后刷新不覆盖选择，实际导入路径与提示一致。
-3. UAC 取消后表单保留；普通用户不能直接执行 `--admin`；应用期间退出受保护。
-4. 修改端口、认证和用户规则；保留 `Match`；外部改配置后旧表单保存被拒绝。
-5. 不合法配置不替换；用占用端口模拟服务启动失败，核对旧配置和服务恢复。
-6. 以普通本地账号、管理员账号和域账号分别验证密码/公钥认证；错误密码被拒绝。
-7. CMD/PowerShell 交互终端、窗口大小变化、远程命令、SFTP 上传下载与 Unicode 文件名。
-8. 公钥列表备注/类型、长公钥全文 tooltip、右侧删除图标与 Delete 键；仅删除指定行，重复密钥/带选项条目不误删。
-   外部修改文件后拒绝旧列表删除；切换目标、缺失文件、权限不足和空列表。
-   粘贴浮层的尖角位置、跨屏 DPI、Tab/Enter/Esc、点击外部关闭；拒绝私钥、多行、无效公钥；取消 UAC 保留输入。
-   管理员授权读取、导入/删除后列表刷新；确认管理员共用文件 ACL 未被放宽。
-9. 防火墙规则只修改本产品的规则；端口变更后同步；域策略禁止更改时明确报错并恢复。
-10. 产生一次成功、错误密码、无效账号及连接关闭事件；比对事件查看器两个通道的时间和消息。
-    账号/IP 缺失不推测；刷新时界面响应；部分通道拒绝访问时仍可查看另一通道和错误。
-11. 注销桌面后 SSH 仍可用；重启 Windows 后服务启动；卸载 GUI 不删除主机密钥。
+On the "Event logs" page, click "Refresh logs" to read the Operational and Admin channels.
+Times use the current computer's time zone. Missing accounts/IP addresses are shown as `—`.
+When a password or public-key failure has no stated cause, the explanation explicitly says it is unknown.
+A closed connection is not automatically classified as an authentication failure. Selecting an event shows its full
+message and XML below for copying and troubleshooting.
 
-## 卸载
+If reading one channel fails, results from the other channel are retained and the error is shown. For access-denied errors,
+run the GUI as administrator and read again. The app only reads existing logs; it does not clear them or change the logging
+level. Logs configured for file output are not included in this list.
 
-先退出托盘，在管理员 PowerShell 中运行安装目录或发布包中的 `Uninstall.ps1`。
-仅删除本产品拥有且路径仍匹配的 `sshd` 服务、对应防火墙规则及 GUI 入口。
-通过 `-GuiOnly` 接管的外部服务不会被删除。
-仅移除安装器记录为自己新增的引擎 PATH 条目，保留原有条目和其他软件后来添加的路径；旧安装标记没有归属记录时不删除 PATH。
-保留 `ProgramData\ssh` 下的密钥、配置、备份，以及引擎事件资源，避免破坏历史日志或已有 agent。
-其他 Windows 用户的托盘自启项可在各自的启动应用设置中移除。
+## Windows validation
 
-## 代码结构
+Run `Test-Windows.ps1` to check window startup, four-page navigation, arrow-key switching, the absence of main-window
+scrollbars, proportional sizing and bounds of controls on all four pages, internal half-width scrollbars, text-scroll
+synchronization, and close-to-tray behavior. In administrator PowerShell, add `-CheckService` to check the installed service
+configuration. The script terminates only the GUI it launched and does not stop the SSH service.
 
-- `src/main.cpp`：侧边导航、原生控件、窗口比例布局、托盘、DPI、异步等待提权进程。
-- `src/theme_controls.cpp`：原生复选框/下拉框的缓冲绘制及主题配色，保留原生交互。
-- `src/theme.cpp`：统一配色、圆角按钮、列表行绘制、导航图标、键盘焦点及系统高对比度适配。
-- `src/layout_math.h` / `tests/layout_tests.cpp`：视口比例映射、字体统一缩放，以及小/宽/高窗口的边界测试。
-- `src/scrollbar.cpp` / `src/scroll_math.h`：胶囊滚动条、独立表头及缓存绘制、原生控件宿主、滚动范围和拖动映射。
-- `tests/scroll_tests.cpp`：滚动范围、极小轨道、非零起点、超过 16 位的位置及边界回归测试。
-- `resources/app.svg` / `app.ico`：应用图标；`scripts/build-icon.py` 可用 Inkscape 和 Pillow 重新生成 ICO。
-- `src/authorized_keys.cpp` / `tests/authorized_keys_tests.cpp`：保留原始字节的条目解析、精确行删除与回归测试。
-- `src/key_popup.cpp`：原生带尖角的公钥粘贴浮层、输入校验及取消保留。
-- `src/key_channel.cpp`：本机受限 ACL 的一次性公钥响应管道、进程校验与完整性检查。
-- `tests/native_controls_tests.cpp`：Windows 上的空/满列表、自动列宽、滚动条显隐临界高度、页面显示/隐藏、外框稳定性、独立表头绘制/空闲重绘/列宽双向同步/横向对齐/GDI 资源释放及滚动同步、浮层校验/取消及响应管道传输测试；不修改真实公钥。
-- `src/platform.cpp`：SCM、UAC、进程输出、配置事务、公钥、ACL、防火墙、注册表。
-- `src/events.cpp`：Windows Event Log 结构化读取、双通道合并和详情。
-- `src/diagnostics.cpp`：登录日志分类与说明。
-- `tests/diagnostics_tests.cpp`：日志分类、账号/IP 提取与消息长度边界回归测试。
-- `src/config.cpp`：与平台无关的配置解析/合并、输入校验、Windows 参数转义。
-- `tests/config_tests.cpp`：配置保留、幂等、拒绝不支持的配置、注入校验；Windows 上额外做参数往返测试。
-- `tests/install_mode_tests.ps1`：自动安装模式、服务查询失败、提权参数转义回归测试。
-- `scripts/EnginePath.ps1` / `tests/engine_path_tests.ps1`：系统 PATH 的原始值及类型保留、去重、添加归属、卸载和失败重试测试。
-- `scripts/`：双击安装入口、自动提权/检测、卸载、打包与 Windows 冒烟检查。
+Also validate the following on a test machine:
 
-本项目与 Microsoft 无隶属关系。GUI 使用此目录的 BSD 2-Clause 许可证；
-OpenSSH 引擎使用其随包许可证与公告。
+1. Double-click first installation, automatic GUI updates, and explicit `-GuiOnly`; launch from a standard user,
+   administrator, and 32-bit PowerShell. Cancel UAC or switch credentials. Test paths containing spaces, Chinese characters,
+   and special characters. Error windows must remain visible and exit codes must be correct.
+   Existing services, whether running or stopped, must not be replaced or started; existing configuration and keys must
+   be preserved. Check installation-directory and host-key ACLs. Detection failures, a busy installation directory,
+   repeated installation, and incomplete release packages must produce clear errors.
+2. All four pages at 100%/150%/200% DPI; scaling across monitors, small windows, and maximized proportional layout.
+   The main window must have no scrollbars, and all main controls must stay within the client area.
+   Test Tab/Shift+Tab, navigation arrow keys, Space/Enter on buttons, borderless navigation selection, disabled states,
+   and high-contrast readability. Continuously resize width and height: text and icons must scale uniformly and buttons
+   must stay within bounds. Continuous internal list scrolling must not cause repeated layout or white flashes.
+   Drag thumbs to both ends, hold the scrollbar track, and scroll long text and log lists.
+   Independent headers must not flash white while idle, on hover, or during data updates. After resizing columns or
+   scrolling horizontally, headings must remain aligned with data columns.
+   Internal scroll ranges must update after page/DPI changes, and icons must remain clear in the window and tray.
+   Test tray right-click, double-click, and recovery after Explorer restarts.
+   Check the top account identity as a standard user, a non-elevated administrator, and an elevated administrator.
+   Long account names must not cover the service status. The default public-key target must match the account;
+   refreshing after a manual target change must preserve that selection, and the actual import path must match the hint.
+3. Cancel UAC and confirm that the form is preserved. A standard user must not be able to execute `--admin` directly.
+   Exiting during an apply operation must be prevented.
+4. Change the port, authentication, and user rules. Preserve `Match` blocks. After an external configuration edit,
+   saving from the stale form must be rejected.
+5. Invalid configurations must not replace the existing file. Use an occupied port to simulate service-start failure
+   and verify restoration of the previous configuration and service state.
+6. Validate password/public-key authentication separately with a standard local account, an administrator account,
+   and a domain account. Incorrect passwords must be rejected.
+7. Test interactive CMD/PowerShell terminals, window resizing, remote commands, SFTP uploads/downloads, and Unicode filenames.
+8. Check public-key comments/types, full-key tooltips for long keys, the delete icon, and the Delete key.
+   Only the selected row should be deleted; duplicate keys and entries with options must not be removed accidentally.
+   External file changes must cause deletion from a stale list to be rejected. Test target switching, missing files,
+   insufficient permissions, and empty lists. Check the paste popup's pointer position, DPI across monitors,
+   Tab/Enter/Esc, and closing by clicking outside. Reject private keys, multiline input, and invalid public keys;
+   canceling UAC must preserve input. Test administrator-authorized reading and list refresh after import/deletion.
+   Confirm that shared administrator key-file ACLs have not been relaxed.
+9. Firewall changes must affect only this product's rule and synchronize after port changes.
+   If domain policy prevents changes, the app must report the error and attempt recovery.
+10. Generate successful sign-in, incorrect-password, invalid-account, and closed-connection events.
+    Compare timestamps and messages with both channels in Event Viewer. Missing accounts/IPs must not be guessed.
+    The UI must remain responsive during refresh. If one channel denies access, the other channel's results and
+    the error must remain available.
+11. SSH must remain available after desktop sign-out, and the service must start after restarting Windows.
+    Uninstalling the GUI must not delete host keys.
 
-### 分阶段安装专项验收
+## Uninstallation
 
-在 Windows 测试机上分别验收：无服务启动不联网不提权、点击下载后停留在“安装服务”、取消下载、拒绝 UAC 后恢复“安装服务”、断网选择固定版本 ZIP 后等待安装点击、
-错误 ZIP 拒绝、已有停止/运行的系统 OpenSSH 直接管理、现有配置/主机密钥不变，以及安装后 SSH/SFTP 实际连接。
-脚本侧可运行 `windows/tests/engine_archive_tests.ps1`（仅临时文件，不提权、不修改服务）；
-加 `-OfficialArchive <ZIP路径>` 可验证真实固定版本 ZIP。真实安装及 UAC 仍需 Windows 验收。
+Exit the tray app first, then run `Uninstall.ps1` from the installation directory or release package in administrator PowerShell.
+It removes only the `sshd` service owned by this product whose path still matches, its firewall rule, and the GUI entry points.
+External services managed through `-GuiOnly` are not removed.
+
+Only the engine PATH entry recorded as added by this installer is removed. Pre-existing entries and paths subsequently
+added by other software are preserved. Old installation markers without ownership information do not cause PATH removal.
+Keys, configuration, and backups under `ProgramData\ssh`, along with engine event resources, are preserved to avoid breaking
+historical logs or an existing agent. Other Windows users can remove their tray auto-start entries in their own Startup Apps settings.
+
+## Code structure
+
+- `src/main.cpp`: sidebar navigation, native controls, proportional window layout, tray, DPI, and asynchronous waiting
+  for elevated processes.
+- `src/theme_controls.cpp`: buffered drawing and theme colors for native checkboxes/dropdowns, preserving native interaction.
+- `src/theme.cpp`: shared palettes, rounded buttons, list-row drawing, navigation icons, keyboard focus, and system high-contrast support.
+- `src/layout_math.h` / `tests/layout_tests.cpp`: proportional viewport mapping, uniform font scaling, and boundary tests
+  for small, wide, and tall windows.
+- `src/scrollbar.cpp` / `src/scroll_math.h`: capsule scrollbars, independent headers and cached drawing, native control hosts,
+  scroll ranges, and drag mapping.
+- `tests/scroll_tests.cpp`: regression tests for scroll ranges, tiny tracks, nonzero origins, positions beyond 16 bits, and boundaries.
+- `resources/app.svg` / `app.ico`: application icons; `scripts/build-icon.py` can regenerate the ICO using Inkscape and Pillow.
+- `src/authorized_keys.cpp` / `tests/authorized_keys_tests.cpp`: entry parsing that preserves original bytes, exact-row deletion,
+  and regression tests.
+- `src/key_popup.cpp`: native public-key paste popup with a pointer tip, input validation, and input preservation on cancellation.
+- `src/key_channel.cpp`: local, one-time public-key response pipes with restricted ACLs, process verification, and integrity checks.
+- `tests/native_controls_tests.cpp`: Windows tests for empty/full lists, automatic column widths, scrollbar visibility thresholds,
+  page show/hide, stable outer frames, independent-header drawing and idle redraw behavior, bidirectional column-width synchronization,
+  horizontal alignment, GDI resource cleanup, scroll synchronization, popup validation/cancellation, and response-pipe transfer.
+  Does not modify real public keys.
+- `src/platform.cpp`: SCM, UAC, process output, configuration transactions, public keys, ACLs, firewall, and registry access.
+- `src/events.cpp`: structured Windows Event Log reads, merging of both channels, and event details.
+- `src/diagnostics.cpp`: sign-in log classification and explanations.
+- `tests/diagnostics_tests.cpp`: regression tests for log classification, account/IP extraction, and message-length bounds.
+- `src/i18n.h` / `src/i18n.cpp` / `src/i18n_strings.inc`: language matching, Windows UI language detection, and built-in
+  Simplified Chinese, Traditional Chinese, and English text catalogs.
+- `tests/i18n_tests.cpp`: language preference order, script precedence, English fallback, translation completeness,
+  file filters, and log/configuration behavior tests.
+- `scripts/Localization.ps1` / `tests/localization_tests.ps1`: installer translations, argument formatting, and language-selection tests.
+  When CMake detects `pwsh` or `powershell`, CTest also runs the script tests. Set `-DPOWERSHELL_EXECUTABLE=full-path` to specify a runtime.
+  For Windows UI regression testing, run `scripts/Test-Windows.ps1 -Manager executable-path -UiLanguage zh-Hans`,
+  `-UiLanguage zh-Hant`, and `-UiLanguage en` separately. These checks exercise the UI without changing service configuration.
+- `src/config.cpp`: platform-independent configuration parsing/merging, input validation, and Windows argument quoting.
+- `tests/config_tests.cpp`: configuration preservation, idempotence, rejection of unsupported configurations, and injection validation;
+  Windows additionally runs argument round-trip tests.
+- `tests/install_mode_tests.ps1`: automatic installation modes, service-query failures, and elevation-argument quoting regression tests.
+- `scripts/EnginePath.ps1` / `tests/engine_path_tests.ps1`: preservation of raw system PATH values and types, deduplication,
+  ownership of added entries, removal, and retry tests after failures.
+- `scripts/`: double-click installation entry point, automatic elevation/detection, uninstallation, packaging, and Windows smoke tests.
+
+This project is not affiliated with Microsoft. The GUI uses the BSD 2-Clause license in this directory;
+the OpenSSH engine is covered by its bundled licenses and notices.
+
+### Staged installation validation
+
+On a Windows test machine, verify startup with no service and no network access or elevation; downloading followed by
+waiting at "Install service"; download cancellation; restoring "Install service" after UAC rejection; selecting the pinned
+ZIP offline and waiting for an installation click; rejection of incorrect ZIPs; direct management of existing stopped/running
+system OpenSSH services; preservation of configuration and host keys; and actual SSH/SFTP connections after installation.
+
+For script-level checks, run `windows/tests/engine_archive_tests.ps1` (temporary files only, with no elevation or service changes).
+Add `-OfficialArchive <ZIP-path>` to validate the real pinned ZIP. Actual installation and UAC still require Windows validation.

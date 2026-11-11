@@ -1,3 +1,5 @@
+#include "i18n.h"
+namespace i18n = manager::i18n;
 #include "scrollbar.h"
 #include "theme.h"
 #include <commctrl.h>
@@ -345,7 +347,7 @@ HWND gutter(HWND parent) {
     cls.lpfnWndProc = gutterProc; cls.hCursor = LoadCursorW(nullptr, IDC_ARROW); RegisterClassW(&cls);
     auto window = CreateWindowExW(0, gutterClass, L"", WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
         0, 0, 1, 1, parent, nullptr, cls.hInstance, nullptr);
-    if (!window) throw std::runtime_error("Could not create list scrollbar gutter.");
+    if (!window) throw std::runtime_error(i18n::utf8Text(i18n::Text::CreateGutterFailed));
     return window;
 }
 LRESULT CALLBACK hostProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
@@ -433,11 +435,11 @@ int action(HWND bar, UINT code, int line) {
     return r.clamp(result);
 }
 HWND create(HWND parent, bool vertical, int id, bool canvas) {
-    HWND window = CreateWindowExW(0, L"SCROLLBAR", vertical ? L"垂直滚动" : L"水平滚动", WS_CHILD | WS_CLIPSIBLINGS | (vertical ? SBS_VERT : SBS_HORZ),
+    HWND window = CreateWindowExW(0, L"SCROLLBAR", vertical ? i18n::text(i18n::Text::VerticalScroll) : i18n::text(i18n::Text::HorizontalScroll), WS_CHILD | WS_CLIPSIBLINGS | (vertical ? SBS_VERT : SBS_HORZ),
         0, 0, 1, 1, parent, reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)), GetModuleHandleW(nullptr), nullptr);
-    if (!window) throw std::runtime_error("Could not create capsule scrollbar.");
+    if (!window) throw std::runtime_error(i18n::utf8Text(i18n::Text::CreateScrollbarFailed));
     auto* data = new Bar; data->vertical = vertical; data->canvas = canvas;
-    if (!SetWindowSubclass(window, barProc, 1, reinterpret_cast<DWORD_PTR>(data))) { delete data; DestroyWindow(window); throw std::runtime_error("Could not initialize capsule scrollbar."); }
+    if (!SetWindowSubclass(window, barProc, 1, reinterpret_cast<DWORD_PTR>(data))) { delete data; DestroyWindow(window); throw std::runtime_error(i18n::utf8Text(i18n::Text::InitScrollbarFailed)); }
     return window;
 }
 HWND host(HWND owner) {
@@ -446,7 +448,7 @@ HWND host(HWND owner) {
     auto* data = new Host; data->owner = owner;
     HWND window = CreateWindowExW(WS_EX_CONTROLPARENT, hostClass, L"", WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
         0, 0, 1, 1, owner, nullptr, cls.hInstance, data);
-    if (!window) { delete data; throw std::runtime_error("Could not create scrolling host."); }
+    if (!window) { delete data; throw std::runtime_error(i18n::utf8Text(i18n::Text::CreateScrollHostFailed)); }
     return window;
 }
 void attach(HWND window, HWND child, bool listView, bool canvas) {
@@ -463,12 +465,12 @@ void attach(HWND window, HWND child, bool listView, bool canvas) {
         // paint cycle. The hidden built-in header remains the column model.
         SetWindowLongPtrW(child, GWL_STYLE, GetWindowLongPtrW(child, GWL_STYLE) | WS_CLIPCHILDREN | LVS_NOCOLUMNHEADER);
         data->headerClip = gutter(window);
-        data->header = CreateWindowExW(0, WC_HEADERW, L"表头", WS_CHILD | WS_VISIBLE | HDS_HORZ | HDS_FULLDRAG,
+        data->header = CreateWindowExW(0, WC_HEADERW, i18n::text(i18n::Text::Header), WS_CHILD | WS_VISIBLE | HDS_HORZ | HDS_FULLDRAG,
             0, 0, 1, 1, data->headerClip, nullptr, GetModuleHandleW(nullptr), nullptr);
-        if (!data->header) throw std::runtime_error("Could not create independent table header.");
+        if (!data->header) throw std::runtime_error(i18n::utf8Text(i18n::Text::CreateHeaderFailed));
         auto* buffer = new HeaderBuffer;
         if (!SetWindowSubclass(data->header, headerProc, 4, reinterpret_cast<DWORD_PTR>(buffer))) {
-            delete buffer; throw std::runtime_error("Could not buffer table header.");
+            delete buffer; throw std::runtime_error(i18n::utf8Text(i18n::Text::BufferHeaderFailed));
         }
         SendMessageW(data->header, CCM_SETUNICODEFORMAT, TRUE, 0);
         SetWindowTheme(data->header, L"", L"");

@@ -1,6 +1,8 @@
 dist/
 /generated/
 build-mingw/generated/
+build-mingw/.ninja_deps
+build-mingw/.ninja_log
 *.obj
 *.exe
 *.a

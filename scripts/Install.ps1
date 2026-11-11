@@ -1,8 +1,11 @@
 ﻿#Requires -Version 5.1
 [CmdletBinding()]
-param([switch]$GuiOnly, [switch]$Interactive, [switch]$Elevated, [switch]$EngineOnly, [string]$Archive, [switch]$Repair)
+param([switch]$GuiOnly, [switch]$Interactive, [switch]$Elevated, [switch]$EngineOnly, [string]$Archive, [switch]$Repair,
+    [ValidateSet('auto', 'en', 'zh-Hans', 'zh-Hant')][string]$UiLanguage = 'auto')
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'Localization.ps1')
+Initialize-SetupLanguage $UiLanguage
 function Get-InstallMode([bool]$ServiceExists, [bool]$RequestedGuiOnly) {
     if ($RequestedGuiOnly -or $ServiceExists) { return 'GuiOnly' }
     return 'Full'
@@ -15,16 +18,18 @@ function Get-ExistingSshService {
         return $null
     }
 }
-function Get-ElevationArguments([string]$ScriptPath, [bool]$OnlyGui, [bool]$ShowResult) {
+function Get-ElevationArguments([string]$ScriptPath, [bool]$OnlyGui, [bool]$ShowResult,
+    [ValidateSet('en', 'zh-Hans', 'zh-Hant')][string]$Language = 'en') {
     # Encode the entire invocation; apostrophes in a path remain literal PowerShell data.
     $command = "& '" + $ScriptPath.Replace("'", "''") + "' -Elevated"
     if ($OnlyGui) { $command += ' -GuiOnly' }
     if ($ShowResult) { $command += ' -Interactive' }
+    $command += " -UiLanguage '" + $Language + "'"
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
     return "-NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded"
 }
 function Wait-InstallerResult {
-    if ($Interactive) { [void](Read-Host '按 Enter 关闭安装窗口') }
+    if ($Interactive) { [void](Read-Host (Get-SetupText 'CloseWindow')) }
 }
 
 function Assert-NoReparse([string]$Path) {
@@ -32,7 +37,7 @@ function Assert-NoReparse([string]$Path) {
     while ($itemPath) {
         if (Test-Path -LiteralPath $itemPath) {
             if ((Get-Item -LiteralPath $itemPath -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) {
-                throw "Reparse point is not supported: $itemPath"
+                throw (Get-SetupText 'ReparsePath' @($itemPath))
             }
         }
         $itemPath = [IO.Path]::GetDirectoryName($itemPath)
@@ -47,31 +52,31 @@ function Set-ProtectedAcl([string]$Path, [switch]$Directory, [switch]$Private) {
     Set-Acl -LiteralPath $Path -AclObject $acl
 }
 function Check-Native([string]$Operation) {
-    if ($LASTEXITCODE -ne 0) { throw "$Operation failed with exit code $LASTEXITCODE" }
+    if ($LASTEXITCODE -ne 0) { throw (Get-SetupText 'NativeFailed' @($Operation, $LASTEXITCODE)) }
 }
 function Invoke-HostKeyGeneration([string]$EngineDirectory) {
     & (Join-Path $EngineDirectory 'ssh-keygen.exe') -A | Out-Host
-    Check-Native 'Host key generation'
+    Check-Native (Get-SetupText 'HostKeys')
 }
 function Invoke-ConfigValidation([string]$EngineDirectory, [string]$ConfigPath) {
     & (Join-Path $EngineDirectory 'sshd.exe') -t -f $ConfigPath | Out-Host
-    Check-Native 'OpenSSH configuration validation'
+    Check-Native (Get-SetupText 'ValidateConfig')
 }
 function Register-EnginePath([string]$EngineDirectory, $State, [string]$StateFile) {
     $sftp = Join-Path $EngineDirectory 'sftp-server.exe'
     Assert-NoReparse $sftp
     $signature = Get-AuthenticodeSignature -LiteralPath $sftp
     if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') {
-        throw 'Microsoft signature verification failed: sftp-server.exe'
+        throw (Get-SetupText 'SftpSignature')
     }
     & $sftp -Q requests | Out-Null
-    Check-Native 'SFTP engine startup check'
+    Check-Native (Get-SetupText 'SftpStartup')
     Add-EngineToMachinePath $EngineDirectory $State $StateFile
 }
 function Initialize-SshData([string]$EngineDirectory, [string]$DataDirectory) {
     Assert-NoReparse $DataDirectory
     if ((Test-Path -LiteralPath $DataDirectory) -and -not (Test-Path -LiteralPath $DataDirectory -PathType Container)) {
-        throw "SSH data path is not a directory: $DataDirectory"
+        throw (Get-SetupText 'DataDirectory' @($DataDirectory))
     }
     $config = Join-Path $DataDirectory 'sshd_config'
     # Reject links before changing inherited directory permissions or running keygen.
@@ -83,7 +88,7 @@ function Initialize-SshData([string]$EngineDirectory, [string]$DataDirectory) {
         foreach ($entry in @(Get-ChildItem -LiteralPath $DataDirectory -Force)) {
             if ($entry.Name -eq 'sshd_config' -or $entry.Name -eq 'administrators_authorized_keys' -or
                 $entry.Name -like 'ssh_host_*_key' -or $entry.Name -like 'ssh_host_*_key.pub') {
-                if ($entry.PSIsContainer) { throw "Expected an SSH configuration/key file: $($entry.FullName)" }
+                if ($entry.PSIsContainer) { throw (Get-SetupText 'ExpectedFile' @($($entry.FullName))) }
                 $existingFiles += $entry
             }
         }
@@ -91,7 +96,7 @@ function Initialize-SshData([string]$EngineDirectory, [string]$DataDirectory) {
         foreach ($type in @('rsa', 'ecdsa', 'ed25519')) {
             $privatePath = Join-Path $DataDirectory "ssh_host_${type}_key"
             if ((Test-Path -LiteralPath "$privatePath.pub") -and -not (Test-Path -LiteralPath $privatePath)) {
-                throw "Public host key has no matching private key: $privatePath.pub. Restore the private key before installing; no existing key was replaced."
+                throw (Get-SetupText 'PrivateKeyMissing' @($privatePath))
             }
         }
     }
@@ -111,11 +116,11 @@ function Initialize-SshData([string]$EngineDirectory, [string]$DataDirectory) {
             Copy-Item -LiteralPath $entry.FullName -Destination $backupPath
             Set-ProtectedAcl $backupPath -Private
             if ((Get-FileHash -LiteralPath $backupPath -Algorithm SHA256).Hash -ne $hash) {
-                throw "File changed during backup: $($entry.FullName). Installation stopped."
+                throw (Get-SetupText 'BackupChanged' @($($entry.FullName)))
             }
             $snapshots += @{ Path = $entry.FullName; Hash = $hash }
         }
-        Write-Host "Existing configuration and keys backed up to: $backupDirectory"
+        Write-Host (Get-SetupText 'BackupSaved' @($backupDirectory))
     }
     New-Item -ItemType Directory -Path $DataDirectory -Force | Out-Null
     Set-ProtectedAcl $DataDirectory -Directory
@@ -128,8 +133,8 @@ function Initialize-SshData([string]$EngineDirectory, [string]$DataDirectory) {
             $bytes = (New-Object Text.UTF8Encoding $false).GetBytes($defaultConfig)
             $stream.Write($bytes, 0, $bytes.Length)
         } finally { $stream.Dispose() }
-        Write-Host "Created configuration: $config"
-    } else { Write-Host "Preserving existing configuration: $config" }
+        Write-Host (Get-SetupText 'ConfigCreated' @($config))
+    } else { Write-Host (Get-SetupText 'ConfigPreserved' @($config)) }
     Set-ProtectedAcl $config
     # Existing private keys are retained by -A. Only missing host keys are generated.
     Invoke-HostKeyGeneration $EngineDirectory
@@ -139,7 +144,7 @@ function Initialize-SshData([string]$EngineDirectory, [string]$DataDirectory) {
     if (Test-Path -LiteralPath $adminKeys) { Set-ProtectedAcl $adminKeys -Private }
     foreach ($snapshot in $snapshots) {
         if ((Get-FileHash -LiteralPath $snapshot.Path -Algorithm SHA256).Hash -ne $snapshot.Hash) {
-            throw "Existing file changed unexpectedly: $($snapshot.Path). Recovery copies: $backupDirectory"
+            throw (Get-SetupText 'ExistingChanged' @($($snapshot.Path), $backupDirectory))
         }
     }
     Invoke-ConfigValidation $EngineDirectory $config
@@ -147,21 +152,21 @@ function Initialize-SshData([string]$EngineDirectory, [string]$DataDirectory) {
 }
 
 function Install-EngineService([string]$destination, [string]$dataDirectory, $state, [string]$stateFile) {
-    if (Get-ExistingSshService) { throw 'An sshd service appeared during installation. Reload before continuing.' }
+    if (Get-ExistingSshService) { throw (Get-SetupText 'ServiceAppeared') }
     $engine = Join-Path $destination 'engine'
     $sshd = Join-Path $engine 'sshd.exe'
     foreach ($file in @('sshd.exe', 'sshd-auth.exe', 'sshd-session.exe', 'ssh-keygen.exe', 'sftp-server.exe', 'ssh-agent.exe', 'libcrypto.dll')) {
         Assert-NoReparse (Join-Path $engine $file)
         $signature = Get-AuthenticodeSignature -LiteralPath (Join-Path $engine $file)
         if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') {
-            throw "Microsoft signature verification failed: $file"
+            throw (Get-SetupText 'SignatureFailed' @($file))
         }
     }
     $config = Initialize-SshData $engine $dataDirectory
     $effectiveConfig = & $sshd -T -f $config
-    Check-Native 'Read effective OpenSSH configuration'
+    Check-Native (Get-SetupText 'ReadEffectiveConfig')
     $ports = @($effectiveConfig | Where-Object { $_ -match '^port ([0-9]+)$' } | ForEach-Object { ($_ -split '\s+')[1] } | Select-Object -Unique)
-    if (-not $ports.Count) { throw 'No listening port found in effective OpenSSH configuration.' }
+    if (-not $ports.Count) { throw (Get-SetupText 'NoPort') }
     Register-EnginePath $engine $state $stateFile
 
     # Preserve an existing OpenSSH event provider (and the existing ssh-agent service).
@@ -173,7 +178,7 @@ function Install-EngineService([string]$destination, [string]$dataDirectory, $st
         $xml.instrumentationManifest.instrumentation.events.provider.messageFileName = Join-Path $engine 'ssh-agent.exe'
         $xml.Save($manifest)
         & "$env:SystemRoot\System32\wevtutil.exe" im $manifest
-        Check-Native 'Register event provider'
+        Check-Native (Get-SetupText 'RegisterEvents')
         $state.RegisteredEvents = $true
         $state | ConvertTo-Json | Set-Content -LiteralPath $stateFile -Encoding UTF8
     }
@@ -182,7 +187,7 @@ function Install-EngineService([string]$destination, [string]$dataDirectory, $st
     $state.OwnsService = $true
     $state | ConvertTo-Json | Set-Content -LiteralPath $stateFile -Encoding UTF8
     & "$env:SystemRoot\System32\sc.exe" privs sshd SeAssignPrimaryTokenPrivilege/SeTcbPrivilege/SeBackupPrivilege/SeRestorePrivilege/SeImpersonatePrivilege
-    Check-Native 'Configure service privileges'
+    Check-Native (Get-SetupText 'ServicePrivileges')
     # Match the upstream RedirectionGuard mitigation, without overwriting existing settings.
     $mitigationPath = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\sshd.exe'
     if (-not (Test-Path -LiteralPath $mitigationPath)) { New-Item -Path $mitigationPath -Force | Out-Null }
@@ -205,10 +210,10 @@ function Invoke-Installation {
     $stateFile = Join-Path $destination 'InstallState.json'
     $manifestPath = Join-Path $PSScriptRoot 'package-hashes.json'
     if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
-        throw 'Release manifest missing. Fully extract the release ZIP and run Install.cmd from that directory.'
+        throw (Get-SetupText 'ManifestMissing')
     }
     if ([IO.Path]::GetFullPath($PSScriptRoot).TrimEnd('\') -eq [IO.Path]::GetFullPath($destination).TrimEnd('\')) {
-        throw 'Run the installer from a freshly extracted release directory, not the installed Program Files directory.'
+        throw (Get-SetupText 'FreshDirectory')
     }
     Assert-NoReparse $destination
     Assert-NoReparse $dataDirectory
@@ -217,31 +222,31 @@ function Invoke-Installation {
     $mode = Get-InstallMode ([bool]$existingService) ([bool]$GuiOnly)
     $GuiOnly = $mode -eq 'GuiOnly'
     if ($existingService) {
-        Write-Host "检测到 sshd 服务（$($existingService.Status)）：仅安装或更新管理界面。" -ForegroundColor Cyan
-        Write-Host '现有 SSH 引擎、服务状态、配置和密钥保持不变。'
+        Write-Host (Get-SetupText 'ExistingService' @($($existingService.Status))) -ForegroundColor Cyan
+        Write-Host (Get-SetupText 'PreserveEngine')
     } elseif ($GuiOnly) {
-        Write-Host '已指定 -GuiOnly：仅安装管理界面；当前没有 sshd 服务。' -ForegroundColor Yellow
+        Write-Host (Get-SetupText 'GuiOnly') -ForegroundColor Yellow
     } else {
-        Write-Host '未检测到 sshd 服务：安装引擎和管理界面，并注册、启动服务。' -ForegroundColor Cyan
+        Write-Host (Get-SetupText 'FullInstall') -ForegroundColor Cyan
     }
     $oldState = $null
     if (Test-Path -LiteralPath $destination) {
-        if (-not (Test-Path -LiteralPath $stateFile)) { throw 'Destination exists without an installation marker.' }
+        if (-not (Test-Path -LiteralPath $stateFile)) { throw (Get-SetupText 'DestinationUnowned') }
         Assert-NoReparse $stateFile
         $oldState = Get-Content -LiteralPath $stateFile -Raw | ConvertFrom-Json
-        if ($oldState.Product -ne 'OpenSSHManager' -or $oldState.Directory -ne $destination) { throw 'Invalid installation marker.' }
+        if ($oldState.Product -ne 'OpenSSHManager' -or $oldState.Directory -ne $destination) { throw (Get-SetupText 'MarkerInvalid') }
         # With no registered sshd service, a previous interrupted installation can be resumed.
         $runningGui = @(Get-Process -Name OpenSSHManager -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq (Join-Path $destination 'OpenSSHManager.exe') })
-        if ($runningGui.Count) { throw 'Exit OpenSSH Manager from its tray menu before updating.' }
+        if ($runningGui.Count) { throw (Get-SetupText 'ExitBeforeUpdate') }
     }
 
     # Keep the expected hashes in memory, then verify protected destination files before execution.
     $hashes = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'package-hashes.json') -Raw | ConvertFrom-Json
-    $rootFiles = @('OpenSSHManager.exe', 'OpenSSHManager.svg', 'README.md', 'LICENSE', 'engine.lock.json', 'Install.cmd', 'Install.ps1', 'Uninstall.ps1', 'EnginePath.ps1', 'EngineArchive.ps1', 'Test-Windows.ps1')
+    $rootFiles = @('OpenSSHManager.exe', 'OpenSSHManager.svg', 'README.md', 'LICENSE', 'engine.lock.json', 'Install.cmd', 'Install.ps1', 'Uninstall.ps1', 'EnginePath.ps1', 'EngineArchive.ps1', 'Localization.ps1', 'Test-Windows.ps1')
     # Validate the complete copy set before creating the installation marker or changing files.
     foreach ($required in $rootFiles) {
         if ($hashes.PSObject.Properties.Name -notcontains $required -or -not (Test-Path -LiteralPath (Join-Path $PSScriptRoot $required) -PathType Leaf)) {
-            throw "Incomplete release package: $required. Fully extract the new ZIP and run its Install.cmd."
+            throw (Get-SetupText 'PackageIncomplete' @($required))
         }
     }
     New-Item -ItemType Directory -Path $destination -Force | Out-Null
@@ -261,7 +266,7 @@ function Invoke-Installation {
     $copied = @()
     foreach ($property in $hashes.PSObject.Properties) {
         $relative = $property.Name
-        if ($relative -match '(^[/\\]|(^|[/\\])\.\.([/\\]|$)|:)' ) { throw 'Invalid package manifest path.' }
+        if ($relative -match '(^[/\\]|(^|[/\\])\.\.([/\\]|$)|:)' ) { throw (Get-SetupText 'ManifestPath') }
         if ($rootFiles -notcontains $relative -and ($GuiOnly -or -not $relative.StartsWith('engine/'))) { continue }
         $source = Join-Path $PSScriptRoot $relative
         $target = Join-Path $destination $relative
@@ -269,17 +274,17 @@ function Invoke-Installation {
         $parent = Split-Path -Parent $target
         New-Item -ItemType Directory -Path $parent -Force | Out-Null
         Copy-Item -LiteralPath $source -Destination $target -Force
-        if ((Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash -ne $property.Value) { throw "Package checksum mismatch: $relative" }
+        if ((Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash -ne $property.Value) { throw (Get-SetupText 'PackageChecksum' @($relative)) }
         $copied += $relative
     }
-    foreach ($required in $rootFiles) { if ($copied -notcontains $required) { throw "Missing package file: $required" } }
+    foreach ($required in $rootFiles) { if ($copied -notcontains $required) { throw (Get-SetupText 'PackageFileMissing' @($required)) } }
     # Load the helper only after copying it to the protected directory and verifying its hash.
     . (Join-Path $destination 'EnginePath.ps1')
     $engine = Join-Path $destination 'engine'
     if ($GuiOnly -and -not $requestedGuiOnly -and $existingService -and $state.OwnsService) {
         $registration = Get-CimInstance Win32_Service -Filter "Name='sshd'"
         if ($registration -and (Test-OwnedEngineService $state $registration.PathName $engine)) {
-            Write-Host 'Checking the existing managed engine PATH for SSH/SFTP sessions.'
+            Write-Host (Get-SetupText 'CheckEnginePath')
             Register-EnginePath $engine $state $stateFile
         }
     }
@@ -293,15 +298,15 @@ function Invoke-Installation {
     $shortcut.Arguments = if ($requestedGuiOnly) { '--no-auto-install' } else { '' }
     $shortcut.WorkingDirectory = $destination
     $shortcut.Save()
-    Write-Host "Installed: $destination"
-    Write-Host 'Launch OpenSSH Manager from the Start menu as your normal desktop user.'
-    Write-Host 'Bundled engine: Microsoft Win32-OpenSSH 10.4.0.0p1-Preview. No Cygwin or .NET GUI runtime is required.'
+    Write-Host (Get-SetupText 'Installed' @($destination))
+    Write-Host (Get-SetupText 'LaunchNormalUser')
+    Write-Host (Get-SetupText 'BundledEngine')
 }
 
 # Entry point: bootstrap before any protected writes, then re-detect after elevation.
 try {
     if ($env:OS -ne 'Windows_NT' -or -not [Environment]::Is64BitOperatingSystem) {
-        throw 'This package requires 64-bit Windows.'
+        throw (Get-SetupText 'Windows64')
     }
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     try {
@@ -309,12 +314,12 @@ try {
         $administrator = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     } finally { $identity.Dispose() }
     if (-not $administrator -or -not [Environment]::Is64BitProcess) {
-        if ($EngineOnly) { throw 'Engine installation must be launched by the elevated GUI worker.' }
-        if ($Elevated) { throw 'Administrator / 64-bit PowerShell bootstrap did not succeed.' }
+        if ($EngineOnly) { throw (Get-SetupText 'EngineElevation') }
+        if ($Elevated) { throw (Get-SetupText 'BootstrapFailed') }
         $psDirectory = if ([Environment]::Is64BitProcess) { 'System32' } else { 'Sysnative' }
         $powershell = Join-Path $env:SystemRoot "$psDirectory\WindowsPowerShell\v1.0\powershell.exe"
-        Write-Host '正在请求管理员权限。取消 UAC 将取消安装。'
-        $arguments = Get-ElevationArguments $PSCommandPath ([bool]$GuiOnly) ([bool]$Interactive)
+        Write-Host (Get-SetupText 'RequestElevation')
+        $arguments = Get-ElevationArguments $PSCommandPath ([bool]$GuiOnly) ([bool]$Interactive) $script:SetupLanguage
         $child = Start-Process -FilePath $powershell -ArgumentList $arguments -Verb RunAs -Wait -PassThru
         exit $child.ExitCode
     }
@@ -324,7 +329,7 @@ try {
     try {
         try { $locked = $mutex.WaitOne(0) }
         catch [Threading.AbandonedMutexException] { $locked = $true }
-        if (-not $locked) { throw 'Another OpenSSH Manager installation or removal is running. Wait for it to finish.' }
+        if (-not $locked) { throw (Get-SetupText 'InstallBusyWait') }
         if ($EngineOnly) {
             [Console]::OutputEncoding = New-Object Text.UTF8Encoding($false)
             . (Join-Path $PSScriptRoot 'EnginePath.ps1')
@@ -336,8 +341,8 @@ try {
         $mutex.Dispose()
     }
     Write-Host ''
-    if ($EngineOnly) { Write-Host 'SSH engine installation completed.' }
-    else { Write-Host '安装完成。请从开始菜单打开 OpenSSH Manager。' -ForegroundColor Green }
+    if ($EngineOnly) { Write-Host (Get-SetupText 'EngineComplete') }
+    else { Write-Host (Get-SetupText 'InstallComplete') -ForegroundColor Green }
     Wait-InstallerResult
     exit 0
 } catch {
@@ -349,11 +354,11 @@ try {
     }
     Write-Host ''
     if ($cancelled) {
-        Write-Host '已取消管理员授权，未开始安装。' -ForegroundColor Yellow
+        Write-Host (Get-SetupText 'ElevationCanceled') -ForegroundColor Yellow
     } else {
-        Write-Host '安装未完成：' -ForegroundColor Red
+        Write-Host (Get-SetupText 'InstallIncomplete') -ForegroundColor Red
         Write-Host ($_ | Out-String) -ForegroundColor Red
-        Write-Host '请保留以上错误。若提示程序正在运行，请先从托盘退出旧版，再重试。'
+        Write-Host (Get-SetupText 'KeepError')
     }
     Wait-InstallerResult
     if ($cancelled) { exit 1223 }

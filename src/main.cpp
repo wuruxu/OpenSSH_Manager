@@ -1,3 +1,4 @@
+#include "i18n.h"
 #include "platform.h"
 #include "build_info.h"
 #include "bootstrap.h"
@@ -82,13 +83,8 @@ struct App {
     bool dirty = false, loading = false, closing = false, configLoaded = false;
     int page = 0;
 } app;
-const wchar_t* pageTitles[] = {L"服务概览", L"连接与认证", L"终端与公钥", L"事件日志"};
-const wchar_t* pageDescriptions[] = {
-    L"管理 SSH 服务、启动方式和桌面托盘。",
-    L"设置监听地址、认证方式及允许访问的账号。",
-    L"选择新会话的终端，管理用于 SSH 登录的公钥。",
-    L"查看登录结果与连接记录，选择事件可查看完整详情。"
-};
+const wchar_t* pageTitles[4]{};
+const wchar_t* pageDescriptions[4]{};
 int scale(int value) { return MulDiv(value, static_cast<int>(app.uiDpi), 96); }
 int sx(int value) { return layoutmath::Viewport{app.viewportW, app.viewportH}.x(value); }
 int sy(int value) { return layoutmath::Viewport{app.viewportW, app.viewportH}.y(value); }
@@ -115,7 +111,8 @@ RECT controlPosition(const Item& item) {
             SIZE extent{scale(28), 0};
             if (HDC dc = GetDC(app.window)) {
                 auto old = SelectObject(dc, app.font);
-                GetTextExtentPoint32W(dc, L"端口", 2, &extent);
+                const auto* captionText = i18n::text(i18n::Text::Port);
+                GetTextExtentPoint32W(dc, captionText, static_cast<int>(wcslen(captionText)), &extent);
                 SelectObject(dc, old); ReleaseDC(app.window, dc);
             }
             int left = sx(caption->x) + extent.cx + scale(12) + scale(9);
@@ -172,7 +169,7 @@ HWND control(const wchar_t* cls, const wchar_t* caption, int id, int page, int x
     HWND window = CreateWindowExW(0, cls, caption,
         WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | style, scrolling ? 0 : scale(x), scrolling ? 0 : scale(y), scale(width), scale(height), parent,
         reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)), GetModuleHandleW(nullptr), nullptr);
-    if (!window) throw std::runtime_error("Could not create native UI control.");
+    if (!window) throw std::runtime_error(i18n::utf8Text(i18n::Text::CreateControlFailed));
     SendMessageW(window, WM_SETFONT, reinterpret_cast<WPARAM>(app.font), TRUE);
     app.items.push_back({window, page, x, y, width, height, anchor});
     app.items.back().canvas = canvas;
@@ -215,14 +212,14 @@ PrimaryAction currentPrimaryAction() {
 }
 std::wstring primaryCaption() {
     switch (currentPrimaryAction()) {
-    case PrimaryAction::Checking: return L"检测中…";
-    case PrimaryAction::Preparing: return app.setupPercent < 0 ? L"准备中…" : L"下载中 " + std::to_wstring(app.setupPercent) + L"%";
-    case PrimaryAction::Installing: return L"安装中…";
-    case PrimaryAction::Download: return L"下载引擎";
-    case PrimaryAction::Install: return L"安装服务";
-    case PrimaryAction::Repair: return L"修复安装";
-    case PrimaryAction::Start: return L"启动服务";
-    default: return app.service.engineMissing ? L"引擎异常" : L"状态未知";
+    case PrimaryAction::Checking: return i18n::text(i18n::Text::Checking);
+    case PrimaryAction::Preparing: return app.setupPercent < 0 ? i18n::text(i18n::Text::Preparing) : i18n::text(i18n::Text::DownloadPercent) + std::to_wstring(app.setupPercent) + L"%";
+    case PrimaryAction::Installing: return i18n::text(i18n::Text::Installing);
+    case PrimaryAction::Download: return i18n::text(i18n::Text::DownloadEngine);
+    case PrimaryAction::Install: return i18n::text(i18n::Text::InstallService);
+    case PrimaryAction::Repair: return i18n::text(i18n::Text::RepairInstall);
+    case PrimaryAction::Start: return i18n::text(i18n::Text::ActionStartService);
+    default: return app.service.engineMissing ? i18n::text(i18n::Text::EngineProblem) : i18n::text(i18n::Text::StateUnknown);
     }
 }
 void showPage(int page) {
@@ -260,7 +257,7 @@ void fonts() {
     HFONT old[] = {app.font, app.small, app.heading, app.title};
     auto make = [](int size, int weight) {
         return CreateFontW(-scale(size), 0, 0, 0, weight, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-            OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Microsoft YaHei UI");
+            OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, i18n::fontFamily());
     };
     app.font = make(14, FW_NORMAL); app.small = make(12, FW_NORMAL);
     app.heading = make(16, FW_SEMIBOLD); app.title = make(24, FW_SEMIBOLD);
@@ -385,7 +382,7 @@ void loadAppIcons() {
     if (!icon || !small) {
         if (icon) DestroyIcon(icon);
         if (small) DestroyIcon(small);
-        throw std::runtime_error("Could not load the application icon.");
+        throw std::runtime_error(i18n::utf8Text(i18n::Text::IconLoadFailed));
     }
     auto old = app.icon, oldSmall = app.smallIcon; app.icon = icon; app.smallIcon = small;
     if (app.window) {
@@ -438,7 +435,7 @@ void trayIcon(bool add) {
     app.tray.uCallbackMessage = trayMessage;
     const bool sameIcon = app.tray.hIcon == app.smallIcon;
     app.tray.hIcon = app.smallIcon;
-    auto tip = L"OpenSSH — " + (!app.statusError.empty() ? std::wstring(L"无法读取状态") : app.service.installed ? stateName(app.service.state) : std::wstring(L"未安装"));
+    auto tip = L"OpenSSH — " + (!app.statusError.empty() ? std::wstring(i18n::text(i18n::Text::StateUnreadable)) : app.service.installed ? stateName(app.service.state) : std::wstring(i18n::text(i18n::Text::NotInstalled)));
     if (!add && tip == app.trayTip && sameIcon) return;
     app.trayTip = tip;
     wcsncpy_s(app.tray.szTip, tip.c_str(), _TRUNCATE);
@@ -461,14 +458,14 @@ void setAutorun(bool enabled) {
     if (code != ERROR_SUCCESS && code != ERROR_FILE_NOT_FOUND) throw std::runtime_error(utf8(errorText(code)));
 }
 std::wstring startDisabledReason() {
-    if (app.setupBusy) return L"正在准备或安装 SSH 引擎，请等待完成。下载阶段可以取消。";
-    if (app.worker) return L"正在执行管理操作，请等待 UAC 或操作窗口完成。";
-    if (!app.statusError.empty()) return L"无法读取服务状态。上方显示具体错误；修复后点击“重新加载”。";
-    if (!app.service.installed) return L"sshd 尚未安装，请先下载引擎并安装服务。";
-    if (!app.service.problem.empty()) return L"启动不可用：服务注册方式暂不受支持。请查看上方的路径和具体原因。";
-    if (app.service.state == SERVICE_RUNNING) return L"服务已经运行，“启动服务”无需再次点击。可以使用“停止服务”或“重启服务”。";
-    if (app.service.startType == SERVICE_DISABLED) return L"启动不可用：服务已被禁用。请先勾选“SSH 服务开机启动”。";
-    if (app.service.state != SERVICE_STOPPED) return L"启动不可用：服务当前为“" + stateName(app.service.state) + L"”，请等待状态转换或检查 Windows 服务管理器。";
+    if (app.setupBusy) return i18n::text(i18n::Text::SetupBusy);
+    if (app.worker) return i18n::text(i18n::Text::AdminBusy);
+    if (!app.statusError.empty()) return i18n::text(i18n::Text::StateReadHint);
+    if (!app.service.installed) return i18n::text(i18n::Text::InstallFirst);
+    if (!app.service.problem.empty()) return i18n::text(i18n::Text::StartUnsupported);
+    if (app.service.state == SERVICE_RUNNING) return i18n::text(i18n::Text::AlreadyRunning);
+    if (app.service.startType == SERVICE_DISABLED) return i18n::text(i18n::Text::ServiceDisabled);
+    if (app.service.state != SERVICE_STOPPED) return i18n::text(i18n::Text::StartStatePrefix) + stateName(app.service.state) + i18n::text(i18n::Text::StartStateSuffix);
     return {};
 }
 void enable(HWND window, bool enabled) {
@@ -511,12 +508,12 @@ void enableControls() {
         if (app.keys) InvalidateRect(app.keys, nullptr, FALSE);
     }
     if (app.service.repairAllowed && !app.setupBusy && !app.worker && app.statusError.empty())
-        reason = app.setupReady ? L"引擎已准备好。点击“修复安装”恢复本程序的引擎，保留配置、密钥和服务启动类型。" :
-            L"本程序引擎缺失。请下载引擎或选择离线包，再点击“修复安装”。";
+        reason = app.setupReady ? i18n::text(i18n::Text::RepairReadyHint) :
+            i18n::text(i18n::Text::RepairDownloadHint);
     else if (!app.service.installed && !app.setupBusy && !app.worker && app.statusError.empty())
-        reason = app.setupReady ? L"引擎已准备好。点击“安装服务”后请求 UAC，安装并启动服务。" :
-            L"点击“下载引擎”，或选择离线包。下载完成后需点击“安装服务”。";
-    auto hint = reason.empty() ? std::wstring(L"服务已停止，可以点击“启动服务”；需要权限时会弹出 UAC。") : reason;
+        reason = app.setupReady ? i18n::text(i18n::Text::InstallReadyHint) :
+            i18n::text(i18n::Text::DownloadHint);
+    auto hint = reason.empty() ? std::wstring(i18n::text(i18n::Text::StartHint)) : reason;
     if (app.startHint && text(app.startHint) != hint) SetWindowTextW(app.startHint, hint.c_str());
 }
 void refreshStatus() {
@@ -526,12 +523,12 @@ void refreshStatus() {
     if (app.service.repairAllowed && app.setupArchive.empty()) app.setupReady = false;
     if (app.service.repairAllowed && !previouslyRepairable && !app.setupBusy)
         PostMessageW(app.window, setupMessage, 0, 0);
-    std::wstring title = app.setupBusy ? L"SSH · " + primaryCaption() : app.worker ? L"正在操作…" : !app.statusError.empty() ? L"状态读取失败" : app.service.engineMissing ? L"SSH · 引擎缺失" : app.service.installed ? L"SSH · " + stateName(app.service.state) : L"SSH · 未安装";
+    std::wstring title = app.setupBusy ? L"SSH · " + primaryCaption() : app.worker ? i18n::text(i18n::Text::Working) : !app.statusError.empty() ? i18n::text(i18n::Text::StateReadFailed) : app.service.engineMissing ? i18n::text(i18n::Text::SshEngineMissing) : app.service.installed ? L"SSH · " + stateName(app.service.state) : i18n::text(i18n::Text::SshNotInstalled);
     if (text(app.status) != title) SetWindowTextW(app.status, title.c_str());
     std::wstring detail = app.service.installed ?
-        L"服务名：sshd\r\nsshd 版本：" + (app.service.version.empty() ? std::wstring(L"未知（无法读取文件版本）") : app.service.version) + L"\r\n启动方式：" + std::wstring(app.service.startType == SERVICE_AUTO_START ? L"自动" : app.service.startType == SERVICE_DISABLED ? L"已禁用" : L"手动") +
-        L"    进程 ID：" + std::to_wstring(app.service.pid) + L"\r\n引擎：" + app.service.exe + L"\r\n配置：" + app.service.config :
-        L"尚未注册名为 sshd 的 Windows 服务。";
+        i18n::text(i18n::Text::ServiceDetails) + (app.service.version.empty() ? std::wstring(i18n::text(i18n::Text::VersionUnknown)) : app.service.version) + i18n::text(i18n::Text::StartupDetails) + std::wstring(app.service.startType == SERVICE_AUTO_START ? i18n::text(i18n::Text::Automatic) : app.service.startType == SERVICE_DISABLED ? i18n::text(i18n::Text::Disabled) : i18n::text(i18n::Text::Manual)) +
+        i18n::text(i18n::Text::ProcessId) + std::to_wstring(app.service.pid) + i18n::text(i18n::Text::EngineDetails) + app.service.exe + i18n::text(i18n::Text::ConfigDetails) + app.service.config :
+        i18n::text(i18n::Text::NoServiceRegistered);
     if (!app.setupMessageText.empty()) detail += L"\r\n" + app.setupMessageText;
     if (!app.statusError.empty()) detail = app.statusError;
     if (!app.service.problem.empty()) detail += L"\r\n" + app.service.problem;
@@ -545,22 +542,22 @@ void updateKeyHint() {
     if (!app.keyHint) return;
     bool administrators = SendMessageW(get(KeyTarget), CB_GETCURSEL, 0, 0) == 1;
     std::wstring hint;
-    try { hint = L"写入位置：" + publicKeyFilePath(administrators) + L"\r\n"; }
+    try { hint = i18n::text(i18n::Text::KeyDestination) + publicKeyFilePath(administrators) + L"\r\n"; }
     catch (const std::exception& e) { hint = wide(e.what()) + L"\r\n"; }
-    if (administrators) hint += L"管理员组共用文件，默认配置下适用于管理员账号，并非个人专用。";
-    else if (app.identityKnown && app.identity.administrator) hint += L"当前账号属于管理员组：默认配置不会读取此个人文件，请选管理员组共用。";
-    else hint += L"仅管理当前界面账号的个人公钥文件，其他登录账号需要自己的授权文件。";
-    hint += L"\r\n导入后无需重启；客户端需使用配套私钥。自定义 Match / 公钥路径请另行核对。";
+    if (administrators) hint += i18n::text(i18n::Text::SharedKeyHint);
+    else if (app.identityKnown && app.identity.administrator) hint += i18n::text(i18n::Text::AdminPersonalKeyHint);
+    else hint += i18n::text(i18n::Text::PersonalKeyHint);
+    hint += i18n::text(i18n::Text::KeyImportHint);
     if (text(app.keyHint) != hint) SetWindowTextW(app.keyHint, hint.c_str());
 }
 void refreshIdentity() {
     try {
         app.identity = currentAccountIdentity();
         app.identityKnown = true;
-        auto title = app.identity.name + L"（" + (app.identity.administrator ? L"管理员" : L"普通用户") +
-            L" · " + (app.identity.elevated ? L"已提权" : L"未提权") + L"）";
+        auto title = app.identity.name + i18n::text(i18n::Text::OpenParenthesis) + (app.identity.administrator ? i18n::text(i18n::Text::Administrator) : i18n::text(i18n::Text::StandardUser)) +
+            L" · " + (app.identity.elevated ? i18n::text(i18n::Text::Elevated) : i18n::text(i18n::Text::NotElevated)) + i18n::text(i18n::Text::CloseParenthesis);
         SetWindowTextW(app.account, title.c_str());
-        auto detail = L"界面账号：" + app.identity.qualifiedName + L"  ·  公钥应对应实际 SSH 登录账号";
+        auto detail = i18n::text(i18n::Text::AppAccount) + app.identity.qualifiedName + i18n::text(i18n::Text::AccountKeyHint);
         SetWindowTextW(app.accountDetail, detail.c_str());
         if (!app.keyTargetInitialized) {
             SendMessageW(get(KeyTarget), CB_SETCURSEL, app.identity.administrator ? 1 : 0, 0);
@@ -568,29 +565,29 @@ void refreshIdentity() {
         }
     } catch (const std::exception& e) {
         app.identityKnown = false;
-        SetWindowTextW(app.account, L"账号身份读取失败");
+        SetWindowTextW(app.account, i18n::text(i18n::Text::AccountReadFailed));
         SetWindowTextW(app.accountDetail, wide(e.what()).c_str());
     }
     updateKeyHint();
     loadKeys();
 }
-constexpr wchar_t allListenAddresses[] = L"全部网络接口（IPv4 / IPv6）";
+
 std::wstring listenCaption(const NetworkAddress& entry) { return entry.name + L" — " + entry.address; }
 std::wstring listenValue() {
     int index = static_cast<int>(SendMessageW(get(Listen), CB_GETCURSEL, 0, 0));
     if (index == 0) return L"";
     if (index > 0 && static_cast<size_t>(index) <= app.listenAddresses.size()) return app.listenAddresses[index - 1].address;
-    throw std::runtime_error("Please select a listen address.");
+    throw std::runtime_error(i18n::utf8Text(i18n::Text::SelectListenAddress));
 }
 void refreshListenAddresses(const std::wstring& value) {
     std::vector<NetworkAddress> entries;
-    std::wstring hint = L"选择网络接口地址；地址变化后需重新选择。";
+    std::wstring hint = i18n::text(i18n::Text::ListenHint);
     try { entries = networkAddresses(); }
-    catch (...) { hint = L"无法读取网络接口，已保留当前配置；重新展开列表可重试。"; }
+    catch (...) { hint = i18n::text(i18n::Text::InterfacesReadFailed); }
     // A saved address may belong to a disconnected adapter. Keep it selectable
     // so merely opening/saving the page never changes the binding to all IPs.
     if (!value.empty() && std::none_of(entries.begin(), entries.end(), [&](const auto& entry) { return entry.address == value; }))
-        entries.push_back({L"当前配置（接口不可用）", value});
+        entries.push_back({i18n::text(i18n::Text::InterfaceUnavailable), value});
     struct LoadingGuard {
         bool previous = app.loading;
         LoadingGuard() { app.loading = true; }
@@ -599,7 +596,7 @@ void refreshListenAddresses(const std::wstring& value) {
     // The list is refreshed only on reload/dropdown, not on the service timer.
     SendMessageW(get(Listen), CB_RESETCONTENT, 0, 0);
     app.listenAddresses = std::move(entries);
-    SendMessageW(get(Listen), CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(allListenAddresses));
+    SendMessageW(get(Listen), CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(i18n::text(i18n::Text::AllInterfaces)));
     int selected = value.empty() ? 0 : -1;
     for (size_t i = 0; i < app.listenAddresses.size(); ++i) {
         auto caption = listenCaption(app.listenAddresses[i]);
@@ -621,8 +618,8 @@ void loadConfig() {
             set(Port, wide(s.port)); refreshListenAddresses(wide(s.listen)); set(Users, wide(s.users)); set(Groups, wide(s.groups));
             check(Password, s.password); check(Pubkey, s.pubkey); check(Forwarding, s.forwarding);
             SetWindowTextW(app.note, app.config.problem.empty() ?
-                (app.config.hasMatch ? L"这里只修改全局默认值。现有 Match 条件规则会保留，特定用户的实际配置可能不同。" : L"保存会校验配置，并在服务运行时重启；可能中断现有 SSH 会话。") : wide(app.config.problem).c_str());
-        } else SetWindowTextW(app.note, L"安装并初始化标准 sshd 服务后可编辑配置。");
+                (app.config.hasMatch ? i18n::text(i18n::Text::MatchHint) : i18n::text(i18n::Text::SaveRestartHint)) : wide(app.config.problem).c_str());
+        } else SetWindowTextW(app.note, i18n::text(i18n::Text::ConfigInstallHint));
         auto shell = defaultShell();
         SendMessageW(get(Shell), CB_SETCURSEL, shell.find(L"powershell.exe") != std::wstring::npos ? 1 : 0, 0);
         app.dirty = false;
@@ -638,15 +635,15 @@ void startSetup(const std::wstring& archive = {}, bool download = false) {
     app.setupCancelRequested = false;
     app.setupBusy = app.setupPreparing = true;
     app.setupActivity = download || !archive.empty() ? SetupActivity::Preparing : SetupActivity::Checking;
-    app.setupMessageText = L"正在检查本地引擎…";
+    app.setupMessageText = i18n::text(i18n::Text::CheckingLocal);
     refreshStatus();
 }
 void selectOfflineEngine() {
     if (app.worker || app.setupBusy) return;
     wchar_t path[32768]{};
     OPENFILENAMEW dialog{}; dialog.lStructSize = sizeof(dialog); dialog.hwndOwner = app.window;
-    dialog.lpstrFilter = L"OpenSSH 引擎 ZIP\0*.zip\0\0";
-    dialog.lpstrTitle = L"选择本应用支持版本的官方 OpenSSH-Win64.zip";
+    dialog.lpstrFilter = i18n::text(i18n::Text::ZipFilter);
+    dialog.lpstrTitle = i18n::text(i18n::Text::ZipTitle);
     dialog.lpstrFile = path; dialog.nMaxFile = 32768;
     dialog.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
     if (GetOpenFileNameW(&dialog)) startSetup(path);
@@ -659,7 +656,7 @@ void pollSetup() {
     if (update.stage == SetupStage::Preparing) return;
     app.setupPreparing = app.setupBusy = false; app.setupActivity = SetupActivity::Idle;
     if (app.setupCancelRequested) {
-        app.setupMessageText = L"已取消准备，可以重新下载或选择离线包。"; return;
+        app.setupMessageText = i18n::text(i18n::Text::PreparationRetry); return;
     }
     app.setupReady = update.stage == SetupStage::Ready;
     app.setupArchive = app.setupReady ? update.archive : std::wstring{};
@@ -672,7 +669,7 @@ void installPreparedEngine() {
     app.setupRepairOperation = app.service.repairAllowed;
     app.setupBusy = true; app.setupActivity = SetupActivity::Installing;
     try {
-        app.setupMessageText = L"等待 Windows UAC 授权…";
+        app.setupMessageText = i18n::text(i18n::Text::WaitingUac);
         refreshStatus();
         app.setupChannel.open();
         app.workerAppliesConfig = false;
@@ -680,8 +677,8 @@ void installPreparedEngine() {
         app.setupAdmin = app.worker != nullptr;
         if (!app.worker) {
             app.setupBusy = false; app.setupActivity = SetupActivity::Idle; app.setupChannel.close();
-            app.setupMessageText = app.setupRepairOperation ? L"已取消 UAC 授权。点击“修复安装”可继续。" : L"已取消 UAC 授权。点击“安装服务”可继续，无需重新下载。";
-        } else app.setupMessageText = L"正在校验签名、安装引擎并启动服务…";
+            app.setupMessageText = app.setupRepairOperation ? i18n::text(i18n::Text::RepairUacCanceled) : i18n::text(i18n::Text::InstallUacCanceled);
+        } else app.setupMessageText = i18n::text(i18n::Text::InstallingEngine);
     } catch (const std::exception& e) {
         app.setupBusy = false; app.setupActivity = SetupActivity::Idle;
         app.setupChannel.close(); app.setupMessageText = wide(e.what());
@@ -714,7 +711,8 @@ void hideKeyTooltip() {
 void fitKeyColumns() {
     if (!app.keys || capsule::hasCustomColumns(app.keys)) return;
     RECT rect{}; GetClientRect(app.keys, &rect);
-    const int widths[] = {(std::max)(scale(100), static_cast<int>(rect.right) - scale(250) - 1), scale(194), scale(56)};
+    const int actionWidth = i18n::language() == i18n::Language::English ? 76 : 56;
+    const int widths[] = {(std::max)(scale(100), static_cast<int>(rect.right) - scale(194 + actionWidth) - 1), scale(194), scale(actionWidth)};
     for (int i = 0; i < 3; ++i) if (ListView_GetColumnWidth(app.keys, i) != widths[i]) ListView_SetColumnWidth(app.keys, i, widths[i]);
 }
 void displayKeys(const std::string& source, bool administrators) {
@@ -729,20 +727,20 @@ void displayKeys(const std::string& source, bool administrators) {
         ListView_DeleteAllItems(app.keys);
         for (size_t i = 0; i < app.keyEntries.size(); ++i) {
             const auto& key = app.keyEntries[i];
-            auto caption = key.comment.empty() ? L"未命名公钥 " + std::to_wstring(i + 1) : wide(key.comment);
+            auto caption = key.comment.empty() ? i18n::text(i18n::Text::UnnamedKey) + std::to_wstring(i + 1) : wide(key.comment);
             auto type = wide(key.type);
             LVITEMW item{}; item.mask = LVIF_TEXT; item.iItem = static_cast<int>(i); item.pszText = caption.data();
             ListView_InsertItem(app.keys, &item);
             ListView_SetItemText(app.keys, item.iItem, 1, type.data());
-            ListView_SetItemText(app.keys, item.iItem, 2, const_cast<LPWSTR>(L"删除"));
+            ListView_SetItemText(app.keys, item.iItem, 2, const_cast<LPWSTR>(i18n::text(i18n::Text::Delete)));
         }
         fitKeyColumns();
     }
-    auto hint = L"共 " + std::to_wstring(app.keyEntries.size()) + L" 把公钥 · 悬停查看全文 · 右侧删除\r\n" + publicKeyFilePath(administrators);
+    auto hint = i18n::text(i18n::Text::CountPrefix) + std::to_wstring(app.keyEntries.size()) + i18n::text(i18n::Text::KeyCountSuffix) + publicKeyFilePath(administrators);
     if (!administrators && app.identityKnown && app.identity.administrator)
-        hint = L"当前账号属于管理员组，默认配置读取管理员共用文件。\r\n" + publicKeyFilePath(false);
+        hint = i18n::text(i18n::Text::AdminKeysDefault) + publicKeyFilePath(false);
     if (text(app.keyHint) != hint) SetWindowTextW(app.keyHint, hint.c_str());
-    set(KeyRefresh, L"刷新列表");
+    set(KeyRefresh, i18n::text(i18n::Text::RefreshList));
 }
 bool beginKeyAdmin(std::vector<std::wstring> args) {
     if (app.worker || app.setupBusy) return false;
@@ -752,7 +750,7 @@ bool beginKeyAdmin(std::vector<std::wstring> args) {
     if (!app.worker) { app.keyChannel.close(); return false; }
     app.keyAdminOperation = true; app.workerAppliesConfig = false;
     SetTimer(app.window, 3, 100, nullptr);
-    SetWindowTextW(app.keyHint, L"正在读取或更新管理员组共用公钥…");
+    SetWindowTextW(app.keyHint, i18n::text(i18n::Text::LoadingAdminKeys));
     refreshStatus(); return true;
 }
 void loadKeys(bool authorize) {
@@ -764,8 +762,8 @@ void loadKeys(bool authorize) {
         ListView_DeleteAllItems(app.keys);
         auto hint = wide(e.what());
         if (administrators) {
-            hint = L"读取此文件需要管理员权限，请点击“授权读取”。公钥文件权限保持不变。";
-            set(KeyRefresh, L"授权读取");
+            hint = i18n::text(i18n::Text::AuthorizeKeysHint);
+            set(KeyRefresh, i18n::text(i18n::Text::AuthorizeRead));
         }
         SetWindowTextW(app.keyHint, hint.c_str());
         if (authorize && administrators) beginKeyAdmin({L"key-list"});
@@ -774,7 +772,7 @@ void loadKeys(bool authorize) {
 void importKey() {
     if (app.worker || app.setupBusy) return;
     const bool administrators = keyTargetAdmin();
-    showKeyPopup(app.window, get(KeyAdd), administrators ? L"写入管理员组共用公钥文件" : L"写入当前 Windows 用户的 authorized_keys", [administrators](const std::string& key) {
+    showKeyPopup(app.window, get(KeyAdd), administrators ? i18n::text(i18n::Text::SharedKeyTarget) : i18n::text(i18n::Text::PersonalKeyTarget), [administrators](const std::string& key) {
         if (administrators) return beginKeyAdmin({L"key-import", wide(key)});
         managePublicKey(key, false, false); loadKeys(); return true;
     });
@@ -783,9 +781,9 @@ void removeKey(int index) {
     if (app.worker || app.setupBusy || !app.keyLoaded || index < 0 || static_cast<size_t>(index) >= app.keyEntries.size()) return;
     hideKeyTooltip();
     const auto& key = app.keyEntries[index];
-    auto prompt = L"删除这条授权公钥？使用此条目的新登录将被拒绝。\r\n\r\n" +
+    auto prompt = i18n::text(i18n::Text::DeleteKeyPrompt) +
         wide(key.comment.empty() ? key.type : key.comment) + L"\r\n" + publicKeyFilePath(app.keysAdministrators);
-    if (MessageBoxW(app.window, prompt.c_str(), L"删除公钥", MB_YESNO | MB_DEFBUTTON2 | MB_ICONQUESTION) != IDYES) return;
+    if (MessageBoxW(app.window, prompt.c_str(), i18n::text(i18n::Text::DeleteKeyTitle), MB_YESNO | MB_DEFBUTTON2 | MB_ICONQUESTION) != IDYES) return;
     if (app.keysAdministrators) beginKeyAdmin({L"key-delete", wide(app.keyRevision), std::to_wstring(index)});
     else { managePublicKey({}, true, false, app.keyRevision, static_cast<size_t>(index)); loadKeys(); }
 }
@@ -824,7 +822,7 @@ LRESULT CALLBACK keyListProc(HWND window, UINT message, WPARAM wp, LPARAM lp, UI
     }
     if (message == WM_MOUSEHOVER && app.keyHotRow >= 0 && static_cast<size_t>(app.keyHotRow) < app.keyEntries.size()) {
         auto full = wide(app.keyEntries[app.keyHotRow].text); app.keyTooltipText.clear();
-        if (app.keyHotColumn == 2) app.keyTooltipText = L"删除这条公钥\r\n";
+        if (app.keyHotColumn == 2) app.keyTooltipText = i18n::text(i18n::Text::DeleteKeyTooltip);
         // Explicit wrapping also handles long unbroken base64 without truncation.
         for (size_t i = 0; i < full.size(); ++i) { app.keyTooltipText += full[i]; if ((i + 1) % 88 == 0) app.keyTooltipText += L'\n'; }
         TOOLINFOW info{}; info.cbSize = sizeof(info); info.hwnd = app.keys; info.uId = 1; info.lpszText = app.keyTooltipText.data();
@@ -864,16 +862,16 @@ void drawDelete(const NMLVCUSTOMDRAW& draw) {
 unsigned __stdcall eventThread(void*) {
     try { app.pendingEvents = readEvents(); }
     catch (const std::exception& e) { app.pendingEvents.warning = wide(e.what()); }
-    catch (...) { app.pendingEvents.warning = L"读取事件失败。"; }
+    catch (...) { app.pendingEvents.warning = i18n::text(i18n::Text::ReadEventsFailed); }
     return 0;
 }
 void loadEvents() {
     if (app.eventWorker) return;
     app.pendingEvents = {};
     app.eventWorker = reinterpret_cast<HANDLE>(_beginthreadex(nullptr, 0, eventThread, nullptr, 0, nullptr));
-    if (!app.eventWorker) throw std::runtime_error("Could not start event reader.");
+    if (!app.eventWorker) throw std::runtime_error(i18n::utf8Text(i18n::Text::EventReaderFailed));
     enable(get(Events), FALSE);
-    SetWindowTextW(app.eventHint, L"正在读取 Operational 和 Admin 通道…");
+    SetWindowTextW(app.eventHint, i18n::text(i18n::Text::ReadingEvents));
 }
 void displayEvents() {
     app.eventHotRow = -1;
@@ -889,10 +887,10 @@ void displayEvents() {
             ListView_SetItemText(app.events, static_cast<int>(i), column++, value->data());
         }
     }
-    SetWindowTextW(app.eventDetail, app.eventData.warning.empty() ? L"选择一条事件查看完整消息和 XML。" : app.eventData.warning.c_str());
-    std::wstring hint = L"已读取 " + std::to_wstring(app.eventData.records.size()) + L" 条（本机时区）。";
-    if (!app.eventData.warning.empty()) hint += L"部分读取失败，详情见下方。";
-    else if (app.eventData.records.empty()) hint += L"暂无事件；文件日志不在此列。";
+    SetWindowTextW(app.eventDetail, app.eventData.warning.empty() ? i18n::text(i18n::Text::SelectEventHint) : app.eventData.warning.c_str());
+    std::wstring hint = i18n::text(i18n::Text::EventsReadPrefix) + std::to_wstring(app.eventData.records.size()) + i18n::text(i18n::Text::EventsReadSuffix);
+    if (!app.eventData.warning.empty()) hint += i18n::text(i18n::Text::EventsPartial);
+    else if (app.eventData.records.empty()) hint += i18n::text(i18n::Text::EventsEmpty);
     SetWindowTextW(app.eventHint, hint.c_str());
     if (!app.eventData.records.empty()) ListView_SetItemState(app.events, 0, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
     enable(get(Events), TRUE);
@@ -903,13 +901,13 @@ void display() {
 }
 void trayMenu() {
     HMENU menu = CreatePopupMenu();
-    AppendMenuW(menu, MF_STRING, Show, L"打开控制面板");
+    AppendMenuW(menu, MF_STRING, Show, i18n::text(i18n::Text::OpenPanel));
     bool serviceActionAvailable = app.service.state == SERVICE_RUNNING ?
         !app.worker && app.statusError.empty() && app.service.installed && app.service.problem.empty() : startDisabledReason().empty();
     if (app.service.installed) AppendMenuW(menu, MF_STRING | (serviceActionAvailable ? 0 : MF_GRAYED),
-        app.service.state == SERVICE_RUNNING ? Stop : Start, app.service.state == SERVICE_RUNNING ? L"停止 SSH 服务" : L"启动 SSH 服务");
+        app.service.state == SERVICE_RUNNING ? Stop : Start, app.service.state == SERVICE_RUNNING ? i18n::text(i18n::Text::TrayStop) : i18n::text(i18n::Text::TrayStart));
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(menu, MF_STRING, Exit, L"退出托盘（服务继续运行）");
+    AppendMenuW(menu, MF_STRING, Exit, i18n::text(i18n::Text::TrayExit));
     POINT point{}; GetCursorPos(&point); SetForegroundWindow(app.window);
     auto id = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, point.x, point.y, 0, app.window, nullptr);
     DestroyMenu(menu); PostMessageW(app.window, WM_NULL, 0, 0);
@@ -949,12 +947,18 @@ std::wstring localBuildTime() {
     const ULONGLONG ticks = (buildinfo::compiledEpoch + 11644473600ULL) * 10000000ULL;
     FILETIME utc{static_cast<DWORD>(ticks), static_cast<DWORD>(ticks >> 32)};
     SYSTEMTIME utcTime{}, local{};
-    if (!FileTimeToSystemTime(&utc, &utcTime) || !SystemTimeToTzSpecificLocalTime(nullptr, &utcTime, &local)) return L"未知";
+    if (!FileTimeToSystemTime(&utc, &utcTime) || !SystemTimeToTzSpecificLocalTime(nullptr, &utcTime, &local)) return i18n::text(i18n::Text::Unknown);
     wchar_t value[32]{};
     swprintf_s(value, L"%02u-%02u %02u:%02u", local.wMonth, local.wDay, local.wHour, local.wMinute);
     return value;
 }
 void createUi() {
+    const i18n::Text titles[] = {i18n::Text::PageOverview, i18n::Text::PageConnection, i18n::Text::PageKeys, i18n::Text::PageEvents};
+    const i18n::Text descriptions[] = {i18n::Text::OverviewDescription, i18n::Text::ConnectionDescription, i18n::Text::KeysDescription, i18n::Text::EventsDescription};
+    for (int i = 0; i < 4; ++i) {
+        pageTitles[i] = i18n::text(titles[i]);
+        pageDescriptions[i] = i18n::text(descriptions[i]);
+    }
     app.dpi = GetDpiForWindow(app.window);
     RECT client{}; GetClientRect(app.window, &client); app.viewportW = client.right; app.viewportH = client.bottom;
     app.uiDpi = layoutmath::Viewport{app.viewportW, app.viewportH}.fontDpi(); fonts();
@@ -962,90 +966,95 @@ void createUi() {
     label(L"OpenSSH", -1, 20, 25, 112, 26, Strong);
     label(L"MANAGER", -1, 21, 51, 110, 20, Small, true);
     label(buildinfo::version, -1, 20, 76, 156, 16, Small, true);
-    auto buildTime = std::wstring(L"编译 ") + localBuildTime();
+    auto buildTime = std::wstring(i18n::text(i18n::Text::BuildTime)) + localBuildTime();
     label(buildTime.c_str(), -1, 20, 96, 156, 18, Small, true);
-    app.navigation = control(L"LISTBOX", L"功能导航", Navigation, -1, 12, contentTop, 172, 208,
+    app.navigation = control(L"LISTBOX", i18n::text(i18n::Text::Navigation), Navigation, -1, 12, contentTop, 172, 208,
         WS_TABSTOP | LBS_NOTIFY | LBS_HASSTRINGS | LBS_OWNERDRAWFIXED | LBS_NOINTEGRALHEIGHT);
     SendMessageW(app.navigation, LB_SETITEMHEIGHT, 0, sy(52));
     for (auto caption : pageTitles) SendMessageW(app.navigation, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(caption));
-    label(L"后台服务独立运行", -1, 24, 650, 152, 20, Small, true, false, MoveY);
-    label(L"关闭窗口可收起到托盘", -1, 24, 674, 156, 20, Small, true, false, MoveY);
-    app.account = control(L"STATIC", L"正在读取账号…", 0, -1, 228, 25, 548, 26, SS_ENDELLIPSIS | SS_NOPREFIX, GrowX);
+    label(i18n::text(i18n::Text::BackgroundService), -1, 24, 650, 152, 20, Small, true, false, MoveY);
+    label(i18n::text(i18n::Text::CloseToTray), -1, 24, 674, 156, 20, Small, true, false, MoveY);
+    app.account = control(L"STATIC", i18n::text(i18n::Text::ReadingAccount), 0, -1, 228, 25, 548, 26, SS_ENDELLIPSIS | SS_NOPREFIX, GrowX);
     app.items.back().font = Strong;
     app.accountDetail = control(L"STATIC", L"", 0, -1, 228, 51, 548, 20, SS_ENDELLIPSIS | SS_NOPREFIX, GrowX);
     app.items.back().font = Small; app.items.back().muted = true;
-    app.status = control(L"STATIC", L"SSH 服务", 0, -1, 800, 26, 192, 44, SS_OWNERDRAW, MoveX);
+    app.status = control(L"STATIC", i18n::text(i18n::Text::SshService), 0, -1, 800, 26, 192, 44, SS_OWNERDRAW, MoveX);
     app.pageTitle = label(pageTitles[0], -1, 228, 136, 764, 34, PageTitle, false, true, GrowX);
     app.pageSubtitle = label(pageDescriptions[0], -1, 230, 176, 760, 22, Body, true, true, GrowX);
-    label(L"更改系统设置时会请求管理员授权。", -1, 230, 724, 760, 20, Small, true, true, GrowX | MoveY);
+    label(i18n::text(i18n::Text::ElevationHint), -1, 230, 724, 760, 20, Small, true, true, GrowX | MoveY);
 
     card(0, 228, 208, 764, 282);
-    label(L"SSH 服务", 0, 252, 230, 716, 24, Strong);
+    label(i18n::text(i18n::Text::SshService), 0, 252, 230, 716, 24, Strong);
     app.details = control(L"EDIT", L"", 0, 0, 252, 270, 716, 112,
         WS_TABSTOP | WS_VSCROLL | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL, GrowX);
     app.items.back().muted = true;
-    button(L"启动服务", Start, 0, 252, 398, 108);
-    button(L"停止服务", Stop, 0, 372, 398, 108);
-    button(L"重启服务", Restart, 0, 492, 398, 108);
-    button(L"选择离线包", SetupOffline, 0, 372, 398, 108);
-    button(L"取消下载", SetupCancel, 0, 492, 398, 116);
+    const bool english = i18n::language() == i18n::Language::English;
+    const int serviceButtonWidth = i18n::language() == i18n::Language::SimplifiedChinese ? 108 : 132;
+    const int secondButtonX = 252 + serviceButtonWidth + 12;
+    const int thirdButtonX = secondButtonX + serviceButtonWidth + 12;
+    button(i18n::text(i18n::Text::ActionStartService), Start, 0, 252, 398, serviceButtonWidth);
+    button(i18n::text(i18n::Text::StopService), Stop, 0, secondButtonX, 398, serviceButtonWidth);
+    button(i18n::text(i18n::Text::RestartService), Restart, 0, thirdButtonX, 398, serviceButtonWidth);
+    button(i18n::text(i18n::Text::SelectOffline), SetupOffline, 0, secondButtonX, 398, serviceButtonWidth);
+    button(i18n::text(i18n::Text::CancelDownload), SetupCancel, 0, thirdButtonX, 398, english ? 132 : 116);
     app.startHint = label(L"", 0, 252, 446, 716, 36, Small, true, false, GrowX);
     card(0, 228, 506, 764, 188);
-    label(L"启动与维护", 0, 252, 528, 716, 24, Strong);
-    toggle(L"登录 Windows 后显示托盘", AutoTray, 0, 252, 563, 240);
+    label(i18n::text(i18n::Text::StartupMaintenance), 0, 252, 528, 716, 24, Strong);
+    toggle(i18n::text(i18n::Text::TrayAtLogin), AutoTray, 0, 252, 563, 240);
     check(AutoTray, autorun());
-    toggle(L"SSH 服务开机启动", Auto, 0, 514, 563, 224);
-    button(L"检查配置", Validate, 0, 252, 606, 116);
-    button(L"打开配置目录", OpenFolder, 0, 380, 606, 148);
-    button(L"同步防火墙规则", Firewall, 0, 540, 606, 176);
-    label(L"退出托盘不会停止服务。防火墙默认允许域 / 专用网络的本地子网。", 0, 252, 660, 716, 20, Small, true, false, GrowX);
+    toggle(i18n::text(i18n::Text::ServiceAtBoot), Auto, 0, 514, 563, 224);
+    button(i18n::text(i18n::Text::ValidateConfig), Validate, 0, 252, 606, 116);
+    button(i18n::text(i18n::Text::OpenConfigFolder), OpenFolder, 0, 380, 606, 148);
+    button(i18n::text(i18n::Text::SyncFirewall), Firewall, 0, 540, 606, 176);
+    label(i18n::text(i18n::Text::FirewallHint), 0, 252, 660, 716, 20, Small, true, false, GrowX);
 
     // Heading-to-controls gap: 22 -> 11 design pixels on both rows.
     card(1, 228, 208, 764, 156);
-    label(L"认证与转发", 1, 252, 232, 120, 24, Strong);
-    toggle(L"允许密码认证", Password, 1, 383, 228, 170);
-    toggle(L"允许公钥认证", Pubkey, 1, 575, 228, 170);
-    toggle(L"允许 TCP 转发", Forwarding, 1, 767, 228, 187);
-    label(L"网络监听", 1, 252, 288, 120, 24, Strong);
-    app.portLabel = label(L"端口", 1, 383, 288, 40);
+    label(i18n::text(i18n::Text::AuthForwarding), 1, 252, 232, 120, 24, Strong);
+    toggle(i18n::text(i18n::Text::AllowPassword), Password, 1, 383, 228, 170);
+    toggle(i18n::text(i18n::Text::AllowPublicKey), Pubkey, 1, 575, 228, 170);
+    toggle(i18n::text(i18n::Text::AllowForwarding), Forwarding, 1, 767, 228, 187);
+    label(i18n::text(i18n::Text::NetworkListen), 1, 252, 288, 120, 24, Strong);
+    app.portLabel = label(i18n::text(i18n::Text::Port), 1, 383, 288, 52);
     edit(Port, 1, 435, 288, 64);
-    app.listenLabel = label(L"监听 IP", 1, 515, 288, 70);
+    app.listenLabel = label(i18n::text(i18n::Text::ListenIp), 1, 515, 288, 70);
     SetWindowLongPtrW(app.listenLabel, GWL_STYLE, GetWindowLongPtrW(app.listenLabel, GWL_STYLE) | SS_RIGHT);
     control(WC_COMBOBOXW, L"", Listen, 1, 593, 284, 253, 240,
         CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_TABSTOP | WS_VSCROLL, GrowX);
-    app.listenHint = label(L"选择网络接口地址；地址变化后需重新选择。", 1, 252, 330, 716, 18, Small, true, false, GrowX);
+    app.listenHint = label(i18n::text(i18n::Text::ListenHint), 1, 252, 330, 716, 18, Small, true, false, GrowX);
     refreshListenAddresses(L"");
     card(1, 228, 380, 764, 192);
-    label(L"访问范围", 1, 252, 400, 716, 24, Strong);
-    label(L"允许的用户", 1, 252, 440, 108); edit(Users, 1, 376, 440, 578, GrowX);
-    label(L"允许的用户组", 1, 252, 486, 108); edit(Groups, 1, 376, 486, 578, GrowX);
-    label(L"账号使用小写，多个条目用空格分隔，如 domain\\alice bob。\r\n带空格的组名加双引号；留空表示不增加该项限制。", 1, 252, 528, 716, 30, Small, true, false, GrowX);
+    label(i18n::text(i18n::Text::AccessScope), 1, 252, 400, 716, 24, Strong);
+    label(i18n::text(i18n::Text::AllowedUsers), 1, 252, 440, 108); edit(Users, 1, 376, 440, 578, GrowX);
+    label(i18n::text(i18n::Text::AllowedGroups), 1, 252, 486, 108); edit(Groups, 1, 376, 486, 578, GrowX);
+    label(i18n::text(i18n::Text::AccountPatternsHint), 1, 252, 528, 716, 30, Small, true, false, GrowX);
     app.note = control(L"EDIT", L"", 0, 1, 230, 586, 554, 44, WS_TABSTOP | WS_VSCROLL | ES_MULTILINE | ES_READONLY, GrowX, true);
     app.items.back().canvas = true; app.items.back().muted = true; app.items.back().font = Small;
-    button(L"保存并应用", Apply, 1, 812, 592, 180, MoveX, true);
+    button(i18n::text(i18n::Text::SaveApply), Apply, 1, 812, 592, 180, MoveX, true);
 
     card(2, 228, 208, 764, 134);
-    label(L"默认终端", 2, 252, 230, 716, 24, Strong);
-    label(L"新会话使用的命令行环境", 2, 252, 270, 190, 22, Body, true);
+    label(i18n::text(i18n::Text::DefaultShell), 2, 252, 230, 716, 24, Strong);
+    label(i18n::text(i18n::Text::ShellEnvironment), 2, 252, 270, 190, 22, Body, true);
     control(WC_COMBOBOXW, L"", Shell, 2, 464, 266, 266, 180, CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_TABSTOP | WS_VSCROLL, GrowX);
-    SendMessageW(get(Shell), CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Windows 命令提示符（CMD）"));
+    SendMessageW(get(Shell), CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(i18n::text(i18n::Text::WindowsCmd)));
     SendMessageW(get(Shell), CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Windows PowerShell"));
-    button(L"应用终端设置", SetShell, 2, 752, 260, 216, MoveX);
-    label(L"应用于所有账号新建的 SSH 会话，已有会话继续使用原终端。", 2, 252, 308, 716, 20, Small, true, false, GrowX);
+    button(i18n::text(i18n::Text::ApplyShell), SetShell, 2, 752, 260, 216, MoveX);
+    label(i18n::text(i18n::Text::ShellHint), 2, 252, 308, 716, 20, Small, true, false, GrowX);
     card(2, 228, 358, 764, 336, GrowX | GrowY);
-    HWND keyTitle = label(L"授权公钥", 2, 252, 380, 64, 24, Strong);
-    button(L"刷新列表", KeyRefresh, 2, 716, 370, 116, MoveX);
-    button(L"导入公钥", KeyAdd, 2, 844, 370, 124, MoveX);
+    HWND keyTitle = label(i18n::text(i18n::Text::AuthorizedKeys), 2, 252, 380,
+        i18n::language() == i18n::Language::English ? 96 : 64, 24, Strong);
+    button(i18n::text(i18n::Text::RefreshList), KeyRefresh, 2, 716, 370, 116, MoveX);
+    button(i18n::text(i18n::Text::ImportKey), KeyAdd, 2, 844, 370, 124, MoveX);
     control(WC_COMBOBOXW, L"", KeyTarget, 2, 338, 376, 356, 120, CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_TABSTOP | WS_VSCROLL, GrowX);
-    SendMessageW(get(KeyTarget), CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"当前 Windows 用户：.ssh\\authorized_keys"));
-    SendMessageW(get(KeyTarget), CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"管理员组共用：administrators_authorized_keys"));
+    SendMessageW(get(KeyTarget), CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(i18n::text(i18n::Text::PersonalKeyOption)));
+    SendMessageW(get(KeyTarget), CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(i18n::text(i18n::Text::SharedKeyOption)));
     SendMessageW(get(KeyTarget), CB_SETCURSEL, 0, 0);
-    app.keys = control(WC_LISTVIEWW, L"授权公钥列表", KeyList, 2, 252, 418, 716, 218,
+    app.keys = control(WC_LISTVIEWW, i18n::text(i18n::Text::KeyList), KeyList, 2, 252, 418, 716, 218,
         WS_TABSTOP | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_SHAREIMAGELISTS, GrowX | GrowY);
     ListView_SetExtendedListViewStyle(app.keys, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
     ListView_SetBkColor(app.keys, theme::colors.surface); ListView_SetTextBkColor(app.keys, theme::colors.surface); ListView_SetTextColor(app.keys, theme::colors.text);
     int keyColumn = 0;
-    for (auto caption : {L"备注", L"类型", L"操作"}) {
+    for (auto caption : {i18n::text(i18n::Text::Comment), i18n::text(i18n::Text::Type), i18n::text(i18n::Text::Action)}) {
         LVCOLUMNW column{}; column.mask = LVCF_TEXT | LVCF_WIDTH; column.cx = scale(keyColumn == 0 ? 466 : keyColumn == 1 ? 194 : 56);
         column.pszText = const_cast<LPWSTR>(caption); ListView_InsertColumn(app.keys, keyColumn++, &column);
     }
@@ -1059,26 +1068,26 @@ void createUi() {
     app.keyHint = label(L"", 2, 252, 646, 716, 40, Small, true, false, GrowX | MoveY);
 
     card(3, 228, 208, 764, 486, GrowX | GrowY);
-    label(L"最近的连接记录", 3, 252, 230, 400, 24, Strong);
-    button(L"刷新登录日志", Events, 3, 812, 224, 156, MoveX);
-    app.events = control(WC_LISTVIEWW, L"登录事件", EventList, 3, 252, 278, 716, 218,
+    label(i18n::text(i18n::Text::RecentConnections), 3, 252, 230, 400, 24, Strong);
+    button(i18n::text(i18n::Text::RefreshEvents), Events, 3, 812, 224, 156, MoveX);
+    app.events = control(WC_LISTVIEWW, i18n::text(i18n::Text::LoginEvents), EventList, 3, 252, 278, 716, 218,
         WS_TABSTOP | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_SHAREIMAGELISTS, GrowX | GrowY);
     SetWindowSubclass(app.events, eventListProc, 5, 0);
     ListView_SetExtendedListViewStyle(app.events, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER | LVS_EX_LABELTIP);
     ListView_SetBkColor(app.events, theme::colors.surface); ListView_SetTextBkColor(app.events, theme::colors.surface); ListView_SetTextColor(app.events, theme::colors.text);
     int column = 0;
-    for (auto caption : {L"时间", L"结果", L"账号", L"来源 IP", L"说明"}) {
-        const int widths[] = {150, 54, 105, 132, 350};
+    for (auto caption : {i18n::text(i18n::Text::Time), i18n::text(i18n::Text::Result), i18n::text(i18n::Text::Account), i18n::text(i18n::Text::SourceIp), i18n::text(i18n::Text::Explanation)}) {
+        const int widths[] = {150, i18n::language() == i18n::Language::English ? 92 : 54, 105, 132, 350};
         LVCOLUMNW item{}; item.mask = LVCF_TEXT | LVCF_WIDTH; item.pszText = const_cast<LPWSTR>(caption); item.cx = scale(widths[column]);
         ListView_InsertColumn(app.events, column, &item); ++column;
     }
-    label(L"事件详情", 3, 252, 510, 716, 24, Strong, false, false, GrowX | MoveY);
-    app.eventDetail = control(L"EDIT", L"选择事件可查看完整消息和 XML。", 0, 3, 252, 542, 716, 106,
+    label(i18n::text(i18n::Text::EventDetails), 3, 252, 510, 716, 24, Strong, false, false, GrowX | MoveY);
+    app.eventDetail = control(L"EDIT", i18n::text(i18n::Text::SelectEvent), 0, 3, 252, 542, 716, 106,
         WS_TABSTOP | WS_VSCROLL | WS_HSCROLL | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | ES_AUTOHSCROLL, GrowX | MoveY);
     app.items.back().font = Small; app.items.back().muted = true;
     SendMessageW(app.eventDetail, EM_SETLIMITTEXT, 2 * 1024 * 1024, 0);
-    app.eventHint = label(L"合并 Operational / Admin；最多显示最近 200 条。", 3, 252, 664, 716, 20, Small, true, false, GrowX | MoveY);
-    button(L"重新加载", Reload, -1, 20, 704, 156, MoveY);
+    app.eventHint = label(i18n::text(i18n::Text::EventLimitHint), 3, 252, 664, 716, 20, Small, true, false, GrowX | MoveY);
+    button(i18n::text(i18n::Text::Reload), Reload, -1, 20, 704, 156, MoveY);
     SetWindowTheme(app.keyTooltip, L"", L"");
     SendMessageW(app.keyTooltip, TTM_SETTIPBKCOLOR, theme::colors.surface, 0);
     SendMessageW(app.keyTooltip, TTM_SETTIPTEXTCOLOR, theme::colors.text, 0);
@@ -1143,7 +1152,7 @@ LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
             switch (id) {
             case SetupOffline: selectOfflineEngine(); break;
             case SetupCancel:
-                app.setupCancelRequested = true; app.setup.cancel(); app.setupMessageText = L"正在取消下载，请稍候…"; refreshStatus(); break;
+                app.setupCancelRequested = true; app.setup.cancel(); app.setupMessageText = i18n::text(i18n::Text::CancelingDownload); refreshStatus(); break;
             case Start:
                 refreshStatus();
                 switch (currentPrimaryAction()) {
@@ -1168,7 +1177,7 @@ LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
             case Apply: applySettings(); break;
             case SetShell: begin({L"shell", SendMessageW(get(Shell), CB_GETCURSEL, 0, 0) == 1 ? L"powershell" : L"cmd"}); break;
             case Reload:
-                if (!app.dirty || MessageBoxW(window, L"重新加载会放弃未保存的设置。继续？", L"重新加载", MB_YESNO | MB_ICONQUESTION) == IDYES) {
+                if (!app.dirty || MessageBoxW(window, i18n::text(i18n::Text::ReloadPrompt), i18n::text(i18n::Text::Reload), MB_YESNO | MB_ICONQUESTION) == IDYES) {
                     loadConfig(); startSetup();
                 }
                 break;
@@ -1182,8 +1191,8 @@ LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
             case KeyRefresh: loadKeys(true); break;
             case Show: display(); break;
             case Exit:
-                if (app.worker || app.eventWorker || app.setupBusy) { display(); MessageBoxW(window, L"请等待当前管理操作完成。", L"OpenSSH Manager", MB_OK); break; }
-                if (app.dirty && MessageBoxW(window, L"有未保存的设置。退出托盘并放弃这些设置？SSH 服务将继续运行。", L"退出", MB_YESNO | MB_ICONQUESTION) != IDYES) break;
+                if (app.worker || app.eventWorker || app.setupBusy) { display(); MessageBoxW(window, i18n::text(i18n::Text::WaitOperation), L"OpenSSH Manager", MB_OK); break; }
+                if (app.dirty && MessageBoxW(window, i18n::text(i18n::Text::ExitPrompt), i18n::text(i18n::Text::Exit), MB_YESNO | MB_ICONQUESTION) != IDYES) break;
                 app.closing = true; DestroyWindow(window); break;
             } return 0;
         }
@@ -1222,8 +1231,8 @@ LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                     int row = static_cast<int>(draw->nmcd.dwItemSpec);
                     COLORREF ink = theme::colors.muted;
                     if (draw->nmcd.dwItemSpec < app.eventData.records.size()) {
-                        const auto& result = app.eventData.records[row].result;
-                        ink = result == L"成功" ? theme::colors.success : result == L"失败" || result == L"错误" ? theme::colors.danger : theme::colors.muted;
+                        const auto& event = app.eventData.records[row];
+                        ink = event.kind == LoginKind::Success ? theme::colors.success : event.kind == LoginKind::Failure || event.error ? theme::colors.danger : theme::colors.muted;
                     }
                     theme::listRow(app.events, draw->nmcd.hdc, row, app.font, app.uiDpi, row == app.eventHotRow, -1, 1, ink);
                     return CDRF_SKIPDEFAULT;
@@ -1311,17 +1320,17 @@ LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                     try {
                         auto result = app.setupChannel.result();
                         if (code == 0 && result.rfind("OK\n", 0) == 0) {
-                            app.setupMessageText = app.setupRepairOperation ? L"引擎修复完成，原服务启动类型保持不变。" : L"引擎安装完成。"; loadConfig();
-                        } else app.setupMessageText = L"安装未完成：\r\n" + wide(result.rfind("ERROR\n", 0) == 0 ? result.substr(6) : result);
+                            app.setupMessageText = app.setupRepairOperation ? i18n::text(i18n::Text::RepairComplete) : i18n::text(i18n::Text::InstallComplete); loadConfig();
+                        } else app.setupMessageText = i18n::text(i18n::Text::InstallIncomplete) + wide(result.rfind("ERROR\n", 0) == 0 ? result.substr(6) : result);
                     } catch (...) {
-                        app.setupMessageText = L"未收到安装结果。请检查服务状态后重试。";
+                        app.setupMessageText = i18n::text(i18n::Text::InstallNoResult);
                     }
                     app.setupChannel.close();
                 } else if (app.keyAdminOperation) {
                     app.keyAdminOperation = false; KillTimer(window, 3);
                     try {
                         if (code == 0) displayKeys(app.keyChannel.result(), true);
-                        else SetWindowTextW(app.keyHint, L"操作未完成，原列表已保留。请刷新后核对。" );
+                        else SetWindowTextW(app.keyHint, i18n::text(i18n::Text::KeyOperationIncomplete) );
                     } catch (...) { app.keyChannel.close(); enableControls(); throw; }
                     app.keyChannel.close(); enableControls();
                 } else if (code == 0 && (app.workerAppliesConfig || !app.dirty)) loadConfig();
@@ -1351,7 +1360,7 @@ LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
     } catch (const std::exception& e) {
         // Avoid repeated error dialogs from the status refresh timer.
         if (message == WM_TIMER && wparam == 3) SetWindowTextW(app.keyHint, wide(e.what()).c_str());
-        else if (message == WM_TIMER) { if (text(app.status) != L"无法读取服务状态，请重新加载。") SetWindowTextW(app.status, L"无法读取服务状态，请重新加载。"); }
+        else if (message == WM_TIMER) { if (text(app.status) != i18n::text(i18n::Text::ReloadState)) SetWindowTextW(app.status, i18n::text(i18n::Text::ReloadState)); }
         else error(e);
         if (message == WM_CREATE) return -1;
     }
@@ -1359,11 +1368,22 @@ LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
 }
 }
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
+    i18n::initialize();
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     int count = 0; auto argv = CommandLineToArgvW(GetCommandLineW(), &count);
     std::vector<std::wstring> args;
     for (int i = 1; argv && i < count; ++i) args.emplace_back(argv[i]);
     LocalFree(argv);
+    // Internal override precedes --admin, keeping operation arguments untouched.
+    if (!args.empty() && args[0].rfind(L"--ui-language=", 0) == 0) {
+        const auto tag = args[0].substr(14);
+        if (tag != L"en" && tag != L"zh-Hans" && tag != L"zh-Hant") {
+            MessageBoxW(nullptr, i18n::text(i18n::Text::SupportedArgs), L"OpenSSH Manager", MB_OK | MB_ICONERROR);
+            CoUninitialize(); return 1;
+        }
+        i18n::setLanguage(*i18n::matchLanguage(tag));
+        args.erase(args.begin());
+    }
     if (!args.empty() && args[0] == L"--admin") {
         args.erase(args.begin()); int result = adminMain(args); CoUninitialize(); return result;
     }
@@ -1371,7 +1391,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     for (const auto& arg : args) {
         if (arg == L"--tray") trayOnly = true;
         else if (arg == L"--no-auto-install") {} // Legacy option: startup is always detection-only.
-        else { MessageBoxW(nullptr, L"支持的参数：--tray、--no-auto-install", L"OpenSSH Manager", MB_OK | MB_ICONERROR); CoUninitialize(); return 1; }
+        else { MessageBoxW(nullptr, i18n::text(i18n::Text::SupportedArgs), L"OpenSSH Manager", MB_OK | MB_ICONERROR); CoUninitialize(); return 1; }
     }
     HANDLE singleton = CreateMutexW(nullptr, TRUE, L"Local\\OpenSSHManager.Desktop");
     if (!singleton || GetLastError() == ERROR_ALREADY_EXISTS) {

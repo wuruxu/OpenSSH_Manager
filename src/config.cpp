@@ -1,3 +1,4 @@
+#include "i18n.h"
 #include "config.h"
 #include <algorithm>
 #include <cctype>
@@ -33,31 +34,31 @@ static bool managed(const std::string& key) {
         key == "pubkeyauthentication" || key == "allowtcpforwarding" || key == "allowusers" || key == "allowgroups";
 }
 static void patterns(const std::string& s) {
-    if (s.size() > 2048) throw std::runtime_error("Account list is too long.");
+    if (s.size() > 2048) throw std::runtime_error(i18n::utf8Text(i18n::Text::AccountListLong));
     bool quoted = false;
     for (unsigned char c : s) {
         if (c == '"') { quoted = !quoted; continue; }
         if (c < 32 || c == 127 || c == '#' || c == '=')
-            throw std::runtime_error("Account patterns contain an unsupported character.");
+            throw std::runtime_error(i18n::utf8Text(i18n::Text::AccountPatternInvalid));
     }
-    if (quoted) throw std::runtime_error("Unclosed quote in account patterns.");
+    if (quoted) throw std::runtime_error(i18n::utf8Text(i18n::Text::AccountQuoteOpen));
 }
 void validateSettings(const Settings& s) {
     if (s.port.empty() || s.port.size() > 5 ||
         s.port.find_first_not_of("0123456789") != std::string::npos ||
         std::stoul(s.port) == 0 || std::stoul(s.port) > 65535)
-        throw std::runtime_error("Port must be between 1 and 65535.");
+        throw std::runtime_error(i18n::utf8Text(i18n::Text::PortInvalid));
     auto scopeAt = s.listen.find('%');
     auto address = s.listen.substr(0, scopeAt);
     if (s.listen.size() > 64 || address.find_first_not_of("0123456789abcdefABCDEF:.") != std::string::npos)
-        throw std::runtime_error("Listen address must be a single IPv4/IPv6 literal, without a port.");
+        throw std::runtime_error(i18n::utf8Text(i18n::Text::ListenInvalid));
     if (scopeAt != std::string::npos) {
         auto scope = s.listen.substr(scopeAt + 1);
         if (address.find(':') == std::string::npos || scope.empty() || scope.size() > 10 ||
             scope.find_first_not_of("0123456789") != std::string::npos || std::stoull(scope) == 0 || std::stoull(scope) > 0xffffffffULL)
-            throw std::runtime_error("IPv6 scope must be a numeric network interface index.");
+            throw std::runtime_error(i18n::utf8Text(i18n::Text::ScopeInvalid));
     }
-    if (!s.password && !s.pubkey) throw std::runtime_error("Enable at least password or public-key authentication.");
+    if (!s.password && !s.pubkey) throw std::runtime_error(i18n::utf8Text(i18n::Text::AuthRequired));
     patterns(s.users);
     patterns(s.groups);
 }
@@ -65,7 +66,7 @@ Config parseConfig(const std::string& input) {
     Config out;
     out.text = input;
     if (out.text.compare(0, 3, "\xef\xbb\xbf") == 0) out.text.erase(0, 3);
-    if (out.text.find('\0') != std::string::npos) out.problem = "Configuration contains NUL bytes (possibly UTF-16).";
+    if (out.text.find('\0') != std::string::npos) out.problem = i18n::utf8Text(i18n::Text::ConfigNul);
     std::map<std::string, std::vector<std::string>> values;
     std::istringstream stream(out.text);
     std::string line;
@@ -73,11 +74,11 @@ Config parseConfig(const std::string& input) {
     while (std::getline(stream, line)) {
         auto [key, value] = directive(line);
         if (key == "match") { inMatch = true; out.hasMatch = true; }
-        if (!inMatch && key == "include") out.problem = "Global Include directives require manual editing; automatic changes are disabled.";
+        if (!inMatch && key == "include") out.problem = i18n::utf8Text(i18n::Text::ConfigInclude);
         if (!inMatch && managed(key)) values[key].push_back(value);
     }
     for (const auto& name : {"port", "listenaddress", "allowusers", "allowgroups"}) {
-        if (values[name].size() > 1) out.problem = "Multiple " + std::string(name) + " directives require manual editing.";
+        if (values[name].size() > 1) out.problem = i18n::utf8Text(i18n::Text::ConfigMultiplePrefix) + std::string(name) + i18n::utf8Text(i18n::Text::ConfigMultipleSuffix);
     }
     auto get = [&](const std::string& key, const std::string& fallback) {
         return values[key].empty() ? fallback : values[key].front();
@@ -88,7 +89,7 @@ Config parseConfig(const std::string& input) {
     out.settings.groups = get("allowgroups", "");
     auto boolean = [&](const std::string& key) {
         auto value = lower(get(key, "yes"));
-        if (value != "yes" && value != "no") out.problem = "Unsupported value for " + key + ": " + value;
+        if (value != "yes" && value != "no") out.problem = i18n::utf8Text(i18n::Text::ConfigUnsupported) + key + ": " + value;
         return value != "no";
     };
     out.settings.password = boolean("passwordauthentication");
@@ -145,17 +146,17 @@ std::wstring quoteArgument(const std::wstring& arg) {
 std::string validatePublicKey(const std::string& input) {
     auto text = trim(input);
     if (text.size() > 32768 || text.find_first_of("\r\n\0", 0, 3) != std::string::npos)
-        throw std::runtime_error("Paste one public key, on one line.");
+        throw std::runtime_error(i18n::utf8Text(i18n::Text::KeySingleLine));
     std::istringstream in(text);
     std::string type, data;
     in >> type >> data;
     if (type != "ssh-ed25519" && type != "ssh-rsa" && type != "ecdsa-sha2-nistp256" &&
         type != "ecdsa-sha2-nistp384" && type != "ecdsa-sha2-nistp521" &&
         type != "sk-ssh-ed25519@openssh.com" && type != "sk-ecdsa-sha2-nistp256@openssh.com")
-        throw std::runtime_error("Unsupported public-key type. Private keys and key options are not accepted.");
+        throw std::runtime_error(i18n::utf8Text(i18n::Text::KeyUnsupported));
     if (data.size() < 16 || data.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=") != std::string::npos)
-        throw std::runtime_error("Invalid public-key encoding.");
-    for (unsigned char c : text) if (c < 32 && c != '\t') throw std::runtime_error("Invalid control character in key.");
+        throw std::runtime_error(i18n::utf8Text(i18n::Text::KeyEncoding));
+    for (unsigned char c : text) if (c < 32 && c != '\t') throw std::runtime_error(i18n::utf8Text(i18n::Text::KeyControlCharacter));
     return text;
 }
 }

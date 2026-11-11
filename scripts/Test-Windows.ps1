@@ -1,8 +1,11 @@
 ﻿#Requires -Version 5.1
 [CmdletBinding()]
-param([string]$Manager = (Join-Path $PSScriptRoot 'OpenSSHManager.exe'), [switch]$CheckService)
+param([string]$Manager = (Join-Path $PSScriptRoot 'OpenSSHManager.exe'), [switch]$CheckService,
+    [ValidateSet('auto', 'en', 'zh-Hans', 'zh-Hant')][string]$UiLanguage = 'auto')
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'Localization.ps1')
+Initialize-SetupLanguage $UiLanguage
 if (-not [Environment]::Is64BitProcess) { throw 'Use 64-bit PowerShell.' }
 if (Get-Process -Name OpenSSHManager -ErrorAction SilentlyContinue) { throw 'Exit any running manager first.' }
 # Exercise only navigation and viewport behavior; never click a service/configuration action.
@@ -172,7 +175,7 @@ public static class ManagerUiProbe {
 }
 '@
 $serviceBefore = Get-Service -Name sshd -ErrorAction SilentlyContinue
-$gui = Start-Process -FilePath $Manager -PassThru
+$gui = Start-Process -FilePath $Manager -ArgumentList "--ui-language=$script:SetupLanguage" -PassThru
 try {
     Start-Sleep -Seconds 3
     $gui.Refresh()
@@ -180,9 +183,18 @@ try {
     $window = $gui.MainWindowHandle
     $navigation = [ManagerUiProbe]::Navigation($window)
     if ([ManagerUiProbe]::SendMessage($navigation, 0x18B, [IntPtr]::Zero, [IntPtr]::Zero).ToInt64() -ne 4) { throw 'Expected exactly four navigation pages.' }
-    $captions = @('', '保存并应用', '导入公钥', '刷新登录日志')
+    $captions = switch ($script:SetupLanguage) {
+        'zh-Hans' { @('', '保存并应用', '导入公钥', '刷新登录日志') }
+        'zh-Hant' { @('', '儲存並套用', '匯入公鑰', '重新整理日誌') }
+        default { @('', 'Save & apply', 'Import key', 'Refresh logs') }
+    }
+    $startupCaptions = switch ($script:SetupLanguage) {
+        'zh-Hans' { @('检测中…', '下载引擎', '安装服务', '修复安装', '启动服务', '引擎异常', '状态未知') }
+        'zh-Hant' { @('偵測中…', '下載引擎', '安裝服務', '修復安裝', '啟動服務', '引擎異常', '狀態未知') }
+        default { @('Checking…', 'Download', 'Install service', 'Repair', 'Start service', 'Engine issue', 'Unknown state') }
+    }
     $primary = [ManagerUiProbe]::Caption($window, 101)
-    if ($primary -notin @('检测中…', '下载引擎', '安装服务', '启动服务', '状态未知')) { throw 'Startup entered download or installation without a click.' }
+    if ($primary -notin $startupCaptions) { throw "Unexpected startup action or UI language: $primary" }
     if (-not $serviceBefore) {
         if (Get-Service -Name sshd -ErrorAction SilentlyContinue) { throw 'Startup unexpectedly registered sshd.' }
         if ([ManagerUiProbe]::VisibleControl($window, 102) -or [ManagerUiProbe]::VisibleControl($window, 103)) { throw 'Service controls visible before installation.' }

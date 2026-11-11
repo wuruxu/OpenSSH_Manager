@@ -1,10 +1,12 @@
 #include "diagnostics.h"
+#include "i18n.h"
 #include <iostream>
 #include <stdexcept>
 using namespace manager;
 static void check(bool ok, const char* msg) { if (!ok) throw std::runtime_error(msg); }
 int main() {
     try {
+        i18n::setLanguage(i18n::Language::SimplifiedChinese);
         auto event = summarizeLogin("Accepted publickey for contoso\\alice from 2001:db8::1 port 55123 ssh2: ED25519 SHA256:abc");
         check(event.kind == LoginKind::Success && event.user == "contoso\\alice" && event.address == "2001:db8::1", "Success/IPv6 parsing failed");
         event = summarizeLogin("Failed password for invalid user unknown from 192.0.2.1 port 123 ssh2");
