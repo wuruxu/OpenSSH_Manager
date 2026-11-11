@@ -1,0 +1,6 @@
+#include <windows.h>
+301 RCDATA "@CMAKE_CURRENT_SOURCE_DIR@/scripts/Install.ps1"
+302 RCDATA "@CMAKE_CURRENT_SOURCE_DIR@/scripts/EnginePath.ps1"
+303 RCDATA "@CMAKE_CURRENT_SOURCE_DIR@/scripts/EngineArchive.ps1"
+304 RCDATA "@CMAKE_CURRENT_SOURCE_DIR@/scripts/Uninstall.ps1"
+305 RCDATA "@CMAKE_CURRENT_SOURCE_DIR@/engine.lock.json"

@@ -1,0 +1,17 @@
+# Generated at build time, not at application startup or CMake configuration.
+if(NOT DEFINED VERSION OR NOT DEFINED OUTPUT_DIR)
+  message(FATAL_ERROR "VERSION and OUTPUT_DIR are required")
+endif()
+string(TIMESTAMP build_epoch "%s" UTC)
+# Keep minute precision; the GUI renders this instant in Windows local time.
+math(EXPR build_epoch "${build_epoch} / 60 * 60")
+file(MAKE_DIRECTORY "${OUTPUT_DIR}")
+set(contents "#pragma once\nnamespace manager::buildinfo {\ninline constexpr wchar_t version[] = L\"v${VERSION}\";\ninline constexpr unsigned long long compiledEpoch = ${build_epoch}ULL;\n}\n")
+set(header "${OUTPUT_DIR}/build_info.h")
+if(EXISTS "${header}")
+  file(READ "${header}" previous)
+  if(previous STREQUAL contents)
+    return()
+  endif()
+endif()
+file(WRITE "${header}" "${contents}")

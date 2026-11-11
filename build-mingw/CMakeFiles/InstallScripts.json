@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"/home/user/openssh-10.6p2/windows/build-mingw/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

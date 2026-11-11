@@ -1,0 +1,53 @@
+# Win32-OpenSSH server configuration for OpenSSH Manager.
+# Install as: %ProgramData%\ssh\sshd_config
+# Encoding: UTF-8 without BOM.
+
+# Listen on port 22 on all available IPv4 and IPv6 interfaces.
+# To bind to one address, uncomment and edit ListenAddress.
+Port 22
+AddressFamily any
+#ListenAddress 192.168.1.100
+
+# Use the default host keys under %ProgramData%\ssh.
+# Generate missing host keys with ssh-keygen.exe -A before validation.
+
+# Windows local/domain accounts may log in with a password or a public key.
+PasswordAuthentication yes
+PubkeyAuthentication yes
+PermitEmptyPasswords no
+AuthorizedKeysFile .ssh/authorized_keys
+
+# Optional account restrictions. Replace examples before uncommenting.
+# Use lower-case account names. Multiple entries are separated by spaces.
+# If both AllowUsers and AllowGroups are set, the account must match both.
+#AllowUsers alice contoso\bob
+#AllowGroups sshusers contoso\sshusers
+
+LoginGraceTime 120
+MaxAuthTries 6
+MaxSessions 10
+
+# Interactive terminals and remote command execution remain available.
+# Select CMD / PowerShell through the GUI's default-shell setting.
+PermitTTY yes
+AllowTcpForwarding yes
+GatewayPorts no
+
+# Win32-OpenSSH resolves internal-sftp to sftp-server.exe through the shell.
+# The installer adds its protected engine directory to the system PATH.
+# This does not restrict users to SFTP-only sessions.
+Subsystem sftp internal-sftp
+
+# AUTH sends logs to Windows Event Tracing, read by the GUI's event page.
+SyslogFacility AUTH
+LogLevel INFO
+
+# Probe unresponsive clients; this is not an idle-user logout timer.
+ClientAliveInterval 60
+ClientAliveCountMax 3
+
+# Keep Match blocks after all global settings.
+# With the standard Windows configuration, administrators share this file.
+# Its ACL must permit only SYSTEM and the built-in Administrators group.
+Match Group administrators
+    AuthorizedKeysFile __PROGRAMDATA__/ssh/administrators_authorized_keys

@@ -1,0 +1,6 @@
+#pragma once
+namespace manager::engineRelease {
+inline constexpr wchar_t url[] = L"@ENGINE_URL@";
+inline constexpr char sha256[] = "@ENGINE_SHA256@";
+inline constexpr wchar_t tag[] = L"@ENGINE_TAG@";
+}

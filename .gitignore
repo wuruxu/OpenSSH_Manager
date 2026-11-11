@@ -1,0 +1,6 @@
+dist/
+/generated/
+build-mingw/generated/
+*.obj
+*.exe
+*.a

@@ -1,0 +1,9 @@
+/home/user/openssh-10.6p2/windows/build-mingw/CMakeFiles/manager_config.dir
+/home/user/openssh-10.6p2/windows/build-mingw/CMakeFiles/manager_build_info.dir
+/home/user/openssh-10.6p2/windows/build-mingw/CMakeFiles/OpenSSHManager.dir
+/home/user/openssh-10.6p2/windows/build-mingw/CMakeFiles/edit_cache.dir
+/home/user/openssh-10.6p2/windows/build-mingw/CMakeFiles/rebuild_cache.dir
+/home/user/openssh-10.6p2/windows/build-mingw/CMakeFiles/list_install_components.dir
+/home/user/openssh-10.6p2/windows/build-mingw/CMakeFiles/install.dir
+/home/user/openssh-10.6p2/windows/build-mingw/CMakeFiles/install/local.dir
+/home/user/openssh-10.6p2/windows/build-mingw/CMakeFiles/install/strip.dir
